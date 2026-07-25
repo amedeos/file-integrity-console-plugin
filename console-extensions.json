@@ -1,0 +1,49 @@
+[
+  {
+    "type": "console.flag/model",
+    "properties": {
+      "flag": "FILE_INTEGRITY",
+      "model": {
+        "group": "fileintegrity.openshift.io",
+        "version": "v1alpha1",
+        "kind": "FileIntegrity"
+      }
+    }
+  },
+  {
+    "type": "console.navigation/href",
+    "properties": {
+      "id": "file-integrity",
+      "name": "%plugin__file-integrity-console-plugin~File Integrity%",
+      "href": "/file-integrity",
+      "perspective": "admin",
+      "section": "compute",
+      "insertAfter": "machineconfigs"
+    },
+    "flags": {
+      "required": ["FILE_INTEGRITY"]
+    }
+  },
+  {
+    "type": "console.page/route",
+    "properties": {
+      "exact": true,
+      "path": "/file-integrity",
+      "component": { "$codeRef": "NodeStatusOverviewPage" }
+    },
+    "flags": {
+      "required": ["FILE_INTEGRITY"]
+    }
+  },
+  {
+    "type": "console.page/route",
+    "properties": {
+      "exact": true,
+      "path": "/file-integrity/:fiName/nodes/:nodeName",
+      "component": { "$codeRef": "NodeReportPage" }
+    },
+    "flags": {
+      "required": ["FILE_INTEGRITY"]
+    }
+  }
+]
