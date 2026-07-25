@@ -132,13 +132,18 @@ a release branch is where three branches quietly become three products.
   without a word, so a repository-wide search for PatternFly class names
   answered "none" while three sat in that file. Write control characters as
   escapes, and treat `Bin ... bytes` in a `git diff --stat` of a source file as
-  a defect rather than a curiosity. To check the tree:
+  a defect rather than a curiosity. CI checks this on every pull request; to
+  check the tree by hand:
 
   ```sh
   for f in $(git ls-files); do
-    LC_ALL=C grep -qP '\x00' "$f" 2>/dev/null && echo "$f"
+    LC_ALL=C tr -d '\0' < "$f" | cmp -s - "$f" || echo "$f"
   done
   ```
+
+  Note what this does *not* use. `grep -P '\x00'` finds nothing, because grep
+  refuses to search a file it has decided is binary — the same silence that let
+  the byte through in the first place.
 
 ## Environment
 
