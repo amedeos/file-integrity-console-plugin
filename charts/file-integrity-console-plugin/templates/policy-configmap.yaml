@@ -1,0 +1,24 @@
+{{- if include "file-integrity-console-plugin.hasPolicyConfigMap" . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ template "file-integrity-console-plugin.policyConfigMap" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "file-integrity-console-plugin.labels" . | nindent 4 }}
+data:
+  {{- if .Values.backend.denyList }}
+  # Replaces the deny globs compiled into the binary.
+  deny-list.txt: |
+    {{- range .Values.backend.denyList }}
+    {{ . }}
+    {{- end }}
+  {{- end }}
+  {{- if .Values.backend.extraDenyList }}
+  # Added to whichever list is in effect.
+  extra-deny-list.txt: |
+    {{- range .Values.backend.extraDenyList }}
+    {{ . }}
+    {{- end }}
+  {{- end }}
+{{- end }}

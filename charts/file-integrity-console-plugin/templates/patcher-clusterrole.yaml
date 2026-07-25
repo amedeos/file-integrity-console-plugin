@@ -2,10 +2,10 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ template "openshift-console-plugin.patcherName" . }}
+  name: {{ template "file-integrity-console-plugin.patcherName" . }}
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "openshift-console-plugin.labels" . | nindent 4 }}
+    {{- include "file-integrity-console-plugin.labels" . | nindent 4 }}
 rules:
   - apiGroups: ["operator.openshift.io"]
     resources: ["consoles"]

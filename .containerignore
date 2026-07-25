@@ -1,0 +1,10 @@
+node_modules
+dist
+coverage
+.git
+.yarn/cache
+.yarn/install-state.gz
+docs
+charts
+integration-tests
+jest-junit.xml

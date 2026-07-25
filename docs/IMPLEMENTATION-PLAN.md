@@ -125,7 +125,7 @@ backend/
   internal/nodefile/            # lookup pod aide + exec
   internal/policy/              # deny-list path, limiti
 charts/file-integrity-console-plugin/
-Dockerfile                      # multi-stage: node build → go build → runtime
+Containerfile                   # multi-stage: node build → go build → runtime
 ```
 
 ## Implementazione

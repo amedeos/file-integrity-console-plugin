@@ -39,6 +39,7 @@ type config struct {
 	namespace      string
 	maxBytes       int64
 	denyFile       string
+	extraDenyFile  string
 	enableRetrieve bool
 }
 
@@ -58,7 +59,8 @@ func main() {
 	flag.StringVar(&cfg.staticDir, "static-dir", "/opt/app-root/web", "directory holding the built plugin assets")
 	flag.StringVar(&cfg.namespace, "fio-namespace", "openshift-file-integrity", "namespace the File Integrity Operator runs in")
 	flag.Int64Var(&cfg.maxBytes, "max-file-bytes", 1<<20, "maximum number of bytes to read from a node file")
-	flag.StringVar(&cfg.denyFile, "deny-list-file", "", "file with one deny glob per line; defaults are used if empty")
+	flag.StringVar(&cfg.denyFile, "deny-list-file", "", "file with one deny glob per line, replacing the built-in defaults")
+	flag.StringVar(&cfg.extraDenyFile, "extra-deny-list-file", "", "file with one deny glob per line, added to whichever list is in effect")
 	flag.BoolVar(&cfg.enableRetrieve, "enable-file-retrieve", false, "enable reading files from nodes")
 	flag.Parse()
 
@@ -72,6 +74,17 @@ func main() {
 			os.Exit(1)
 		}
 		globs = loaded
+	}
+	// Kept separate from the replacing list so an installation can harden the
+	// defaults without copying them, which is how a copy goes stale and starts
+	// allowing what a newer default would have denied.
+	if cfg.extraDenyFile != "" {
+		extra, err := loadDenyFile(cfg.extraDenyFile)
+		if err != nil {
+			log.Error("reading extra deny list", "error", err)
+			os.Exit(1)
+		}
+		globs = append(append([]string(nil), globs...), extra...)
 	}
 	pol, err := policy.New(globs)
 	if err != nil {

@@ -1,5 +1,11 @@
 apiVersion: v2
-name: openshift-console-plugin
-description: A Helm chart for Kubernetes
+name: file-integrity-console-plugin
+description: OpenShift console plugin for the Red Hat File Integrity Operator
 type: application
 version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - openshift
+  - console-plugin
+  - file-integrity
+  - compliance
