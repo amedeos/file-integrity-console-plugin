@@ -35,7 +35,9 @@ spec:
             - --tls-key-file=/var/cert/tls.key
             - --static-dir=/opt/app-root/web
             - --fio-namespace={{ .Values.backend.fileIntegrityNamespace }}
-            - --max-file-bytes={{ .Values.backend.maxFileBytes }}
+            # int64: Helm parses YAML numbers as float64, so the default
+            # renders as 1.048576e+06 and the binary rejects the flag.
+            - --max-file-bytes={{ .Values.backend.maxFileBytes | int64 }}
             - --enable-file-retrieve={{ .Values.backend.features.fileRetrieve }}
             {{- if .Values.backend.denyList }}
             - --deny-list-file=/etc/file-integrity-plugin/deny-list.txt
