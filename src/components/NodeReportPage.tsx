@@ -103,6 +103,25 @@ const NodeReportPage: React.FC = () => {
     [configMap],
   );
 
+  // Opening the raw report is the user's call, so this has to be state:
+  // passing isExpanded to ExpandableSection without an onToggle makes it a
+  // controlled component that ignores its own toggle. It starts open only when
+  // the parsed view cannot be trusted — a report we failed to parse, or one the
+  // operator truncated.
+  //
+  // Adjusted during render rather than in an effect (the pattern React
+  // documents for adjusting state when props change): the reset must happen for
+  // a newly loaded report and nothing else, so a user who closes the section
+  // keeps it closed.
+  const [rawExpanded, setRawExpanded] = React.useState(false);
+  const [expansionSetFor, setExpansionSetFor] = React.useState(report);
+  if (report !== expansionSetFor) {
+    setExpansionSetFor(report);
+    setRawExpanded(
+      report?.parseFailed === true || report?.truncated === true,
+    );
+  }
+
   const loaded = fisLoaded && statusesLoaded;
 
   return (
@@ -269,7 +288,8 @@ const NodeReportPage: React.FC = () => {
               className="pf-v6-u-mt-md"
               toggleTextExpanded={t('Hide raw AIDE report')}
               toggleTextCollapsed={t('Show raw AIDE report')}
-              isExpanded={report.parseFailed || report.truncated}
+              isExpanded={rawExpanded}
+              onToggle={(_event, isExpanded) => setRawExpanded(isExpanded)}
             >
               <RawReport text={report.raw} />
             </ExpandableSection>
