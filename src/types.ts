@@ -1,4 +1,4 @@
-import type { K8sResourceCommon } from '@openshift-console/dynamic-plugin-sdk';
+import type { K8sResourceCommon } from './lib/k8s';
 
 /** pkg/apis/fileintegrity/v1alpha1: FileIntegrityNodeCondition */
 export type NodeCondition = 'Succeeded' | 'Failed' | 'Errored';

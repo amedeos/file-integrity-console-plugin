@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Link } from 'react-router';
+import { Link } from '../lib/router';
 import { useTranslation } from 'react-i18next';
 import {
   Alert,
@@ -24,7 +24,7 @@ import {
   ToggleGroupItem,
 } from '@patternfly/react-core';
 import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table';
-import { Timestamp } from '@openshift-console/dynamic-plugin-sdk';
+import { Timestamp } from '../lib/k8s';
 import { I18N_NS } from '../constants';
 import type {
   FileIntegrity,
@@ -37,6 +37,7 @@ import {
 } from '../hooks/useFileIntegrityData';
 import { isNodeHeldOff, isNodeReinitializing } from '../lib/reinit';
 import { errorMessage } from '../lib/errors';
+import { CSS, TOKEN } from '../lib/styles';
 import { ConditionLabel } from './ConditionLabel';
 import { ReinitBulkActions } from './ReinitActions';
 
@@ -71,11 +72,11 @@ const CountCard: React.FC<{
         style={{
           color:
             variant === 'danger'
-              ? 'var(--pf-t--global--text--color--status--danger--default)'
+              ? TOKEN.statusDanger
               : variant === 'warning'
-                ? 'var(--pf-t--global--text--color--status--warning--default)'
+                ? TOKEN.statusWarning
                 : variant === 'success'
-                  ? 'var(--pf-t--global--text--color--status--success--default)'
+                  ? TOKEN.statusSuccess
                   : undefined,
         }}
       >
@@ -312,7 +313,9 @@ const NodeStatusOverviewPage: React.FC = () => {
                           </Flex>
                           {result?.condition === 'Errored' &&
                           result.errorMsg ? (
-                            <div className="pf-v6-u-font-size-sm pf-v6-u-color-200">
+                            <div
+                              className={`${CSS.fontSizeSm} ${CSS.textSecondary}`}
+                            >
                               {result.errorMsg}
                             </div>
                           ) : null}

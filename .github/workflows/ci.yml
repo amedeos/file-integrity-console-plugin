@@ -14,6 +14,43 @@ permissions:
   contents: read
 
 jobs:
+  hygiene:
+    name: Source hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # A raw control character in a source file makes git report it as binary
+      # and makes grep skip it without saying anything, so a repository-wide
+      # search can answer "no matches" while the matches sit in the file it
+      # silently dropped. That is not hypothetical: a NUL reached
+      # src/components/FileContentModal.tsx and hid three PatternFly class
+      # names from exactly such a search.
+      #
+      # Every tracked file is scanned, because this repository has no binary
+      # assets. If one is ever added, exclude it here deliberately rather than
+      # loosening the check — a binary blob arriving in this tree is itself
+      # worth a second look.
+      #
+      # Detection is `tr` plus `cmp`, not grep: grep skips a file it considers
+      # binary even when asked to search it, which is the very behaviour being
+      # guarded against here. Deleting NULs and comparing is immune to that.
+      - name: No NUL bytes in tracked files
+        run: |
+          offenders=$(
+            for f in $(git ls-files); do
+              LC_ALL=C tr -d '\0' < "$f" | cmp -s - "$f" || echo "$f"
+            done
+          )
+          if [ -n "$offenders" ]; then
+            echo "These tracked files contain a NUL byte:"
+            echo "$offenders" | sed 's/^/  /'
+            echo
+            echo "Write control characters as escapes, not as themselves."
+            exit 1
+          fi
+          echo "$(git ls-files | wc -l) tracked files, none containing a NUL byte"
+
   frontend:
     name: Frontend
     runs-on: ubuntu-latest

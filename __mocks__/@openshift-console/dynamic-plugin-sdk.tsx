@@ -19,6 +19,8 @@ export const Timestamp: typeof SDK.Timestamp = ({ timestamp }) => (
   <span>{String(timestamp)}</span>
 );
 
+// The 4.22 names. Older SDKs call these k8sGetResource / k8sPatchResource;
+// src/lib/k8s.ts is where that difference is absorbed.
 export const k8sPatch = jest.fn(() => Promise.resolve({}));
 
 export const k8sGet = jest.fn(() => Promise.resolve({}));

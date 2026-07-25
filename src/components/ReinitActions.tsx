@@ -14,7 +14,7 @@ import {
   ModalFooter,
   ModalHeader,
 } from '@patternfly/react-core';
-import { k8sPatch } from '@openshift-console/dynamic-plugin-sdk';
+import { k8sPatch } from '../lib/k8s';
 import { ANNOTATIONS, I18N_NS } from '../constants';
 import { FileIntegrityModel } from '../models';
 import type { FileIntegrity } from '../types';

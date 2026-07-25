@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Link, useParams } from 'react-router';
+import { Link, useParams } from '../lib/router';
 import { useTranslation } from 'react-i18next';
 import {
   Alert,
@@ -19,7 +19,7 @@ import {
   Spinner,
   Title,
 } from '@patternfly/react-core';
-import { Timestamp } from '@openshift-console/dynamic-plugin-sdk';
+import { Timestamp } from '../lib/k8s';
 import { ANNOTATIONS, I18N_NS } from '../constants';
 import type { AideEntry, AideReport } from '../types';
 import {
@@ -31,6 +31,7 @@ import { extractIntegrityLog, readCountAnnotation } from '../lib/decode';
 import { countsMatch, parseAideReport } from '../lib/aide-parser';
 import { isNodeHeldOff, isNodeReinitializing } from '../lib/reinit';
 import { errorMessage } from '../lib/errors';
+import { CSS } from '../lib/styles';
 import { ConditionLabel } from './ConditionLabel';
 import { AideReportTable } from './AideReportTable';
 import { FileContentModal } from './FileContentModal';
@@ -134,7 +135,7 @@ const NodeReportPage: React.FC = () => {
   return (
     <>
       <PageSection>
-        <Breadcrumb className="pf-v6-u-mb-md">
+        <Breadcrumb className={CSS.marginBottomMd}>
           <BreadcrumbItem>
             <Link to="/file-integrity">{t('File Integrity')}</Link>
           </BreadcrumbItem>
@@ -148,7 +149,7 @@ const NodeReportPage: React.FC = () => {
             <Title headingLevel="h1">{nodeName}</Title>
             <Flex
               spaceItems={{ default: 'spaceItemsSm' }}
-              className="pf-v6-u-mt-sm"
+              className={CSS.marginTopSm}
               alignItems={{ default: 'alignItemsCenter' }}
             >
               <FlexItem>
@@ -170,7 +171,7 @@ const NodeReportPage: React.FC = () => {
               ) : null}
               {result?.lastProbeTime ? (
                 <FlexItem>
-                  <span className="pf-v6-u-color-200">
+                  <span className={CSS.textSecondary}>
                     {t('Last scan')}{' '}
                     <Timestamp timestamp={result.lastProbeTime} />
                   </span>
@@ -246,7 +247,7 @@ const NodeReportPage: React.FC = () => {
               <Alert
                 variant="warning"
                 isInline
-                className="pf-v6-u-mb-md"
+                className={CSS.marginBottomMd}
                 title={t('The report was too large to store')}
               >
                 {t(
@@ -259,7 +260,7 @@ const NodeReportPage: React.FC = () => {
               <Alert
                 variant="warning"
                 isInline
-                className="pf-v6-u-mb-md"
+                className={CSS.marginBottomMd}
                 title={t('This report could not be parsed')}
               >
                 {t(
@@ -274,7 +275,7 @@ const NodeReportPage: React.FC = () => {
               <Alert
                 variant="warning"
                 isInline
-                className="pf-v6-u-mb-md"
+                className={CSS.marginBottomMd}
                 title={t('The parsed report is incomplete')}
               >
                 {t(
@@ -298,7 +299,7 @@ const NodeReportPage: React.FC = () => {
             ) : null}
 
             <ExpandableSection
-              className="pf-v6-u-mt-md"
+              className={CSS.marginTopMd}
               toggleTextExpanded={t('Hide raw AIDE report')}
               toggleTextCollapsed={t('Show raw AIDE report')}
               isExpanded={rawExpanded}

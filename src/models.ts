@@ -1,4 +1,4 @@
-import type { K8sModel } from '@openshift-console/dynamic-plugin-sdk';
+import type { K8sModel } from './lib/k8s';
 
 export const FileIntegrityModel: K8sModel = {
   apiGroup: 'fileintegrity.openshift.io',

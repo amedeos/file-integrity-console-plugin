@@ -25,6 +25,7 @@ import {
 } from '@patternfly/react-table';
 import { I18N_NS } from '../constants';
 import type { AideEntry, AideEntryKind, AideReport } from '../types';
+import { CSS } from '../lib/styles';
 
 interface Props {
   report: AideReport;
@@ -63,7 +64,7 @@ const KindLabel: React.FC<{ kind: AideEntryKind }> = ({ kind }) => {
 /** Renders a value that may legitimately span several lines (ACLs, xattrs). */
 const AttrValue: React.FC<{ value?: string }> = ({ value }) =>
   value === undefined ? (
-    <span className="pf-v6-u-color-200">&mdash;</span>
+    <span className={CSS.textSecondary}>&mdash;</span>
   ) : (
     <code style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
       {value}
@@ -206,7 +207,7 @@ export const AideReportTable: React.FC<Props> = ({
                     <code>{entry.path}</code>
                   </Td>
                   <Td dataLabel={t('AIDE flags')}>
-                    <code className="pf-v6-u-font-size-sm">
+                    <code className={CSS.fontSizeSm}>
                       {entry.changeFlags ?? '-'}
                     </code>
                   </Td>
@@ -236,7 +237,7 @@ export const AideReportTable: React.FC<Props> = ({
                         </Button>
                       )
                     ) : (
-                      <span className="pf-v6-u-color-200">
+                      <span className={CSS.textSecondary}>
                         {entry.kind === 'removed' ? t('Deleted') : '-'}
                       </span>
                     )}

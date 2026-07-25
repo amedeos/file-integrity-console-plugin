@@ -1,8 +1,5 @@
 import * as React from 'react';
-import {
-  k8sGet,
-  useK8sWatchResource,
-} from '@openshift-console/dynamic-plugin-sdk';
+import { k8sGet, useK8sWatchResource } from '../lib/k8s';
 import { FIO_NAMESPACE } from '../constants';
 import {
   ConfigMapModel,
