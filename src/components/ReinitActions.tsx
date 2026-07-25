@@ -203,6 +203,13 @@ export const ReinitBulkActions: React.FC<{
       <Dropdown
         isOpen={open}
         onOpenChange={setOpen}
+        // The toggle sits at the right edge of the page header, and the menu
+        // defaults to position "start": it anchors to the toggle's left edge
+        // and grows rightwards, off the viewport, taking these long labels with
+        // it. "end" is the logical form of right-aligned, so it keeps working
+        // in a right-to-left locale; preventOverflow is what PatternFly's own
+        // API notes recommend when a menu still gets clipped.
+        popperProps={{ position: 'end', preventOverflow: true }}
         toggle={(ref: React.Ref<MenuToggleElement>) => (
           <MenuToggle
             ref={ref}
