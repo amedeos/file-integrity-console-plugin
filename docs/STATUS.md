@@ -130,21 +130,58 @@ generation** (as `odf-console` and `netobserv` do), `main` on 4.22 and a `releas
 against that generation's SDK. **To be tackled after** 4.22 is finished.
 
 Why trying it and seeing is not enough: the manifest declares
-`@console/pluginAPI: >=4.22.0-0`, so on 4.16/4.18 the plugin is not loaded at all. Lowering that
-bound is a one-line change and the worst way to proceed, because three real incompatibilities sit
-underneath:
+`@console/pluginAPI: >=4.22.0-0`, so an older console does not load the plugin at all. Lowering
+that bound is a one-line change and the worst way to proceed.
 
-- **PatternFly 6** here, 5 there: `pf-v6-*` markup served against a `pf-v5` stylesheet gives a
-  structurally correct, visually broken page.
-- **react-router 7** here, v5 there. This is the treacherous one: routes are registered by the
-  console and `useParams()` reads *its* router's context. With a different copy of the package
-  that context does not exist, `useParams()` returns `{}`, `nodeName` becomes an empty string and
-  the page says "node not found" with no error at all — it looks like a logic bug and is a
-  packaging one.
-- **React 18** here; what the 4.16 console provides still needs checking.
+### Observed on a real 4.16 console, 25 July 2026
 
-A useful first step regardless of the approach: install on a 4.16/4.18 cluster and check that the
-refusal is **clean** — no menu entry, no error in the user's face, console otherwise working.
+Run without a second cluster: `quay.io/openshift/origin-console:4.16` locally, pointed at the
+published plugin image and at the 4.22 lab's API, with `BRIDGE_RELEASE_VERSION` supplying the
+version the gate compares against. The recipe is in `AGENTS.md`.
+
+**Declaring 4.16.55 — the gate refuses, cleanly.** Browser console:
+
+```
+Failed to resolve dependencies of plugin file-integrity-console-plugin
+Unmet dependency on Console plugin API:
+@console/pluginAPI: required >=4.22.0-0, current 4.16.55
+```
+
+No menu entry, nothing else affected. Note the message is written by the plugin loader in the
+**browser**, not by bridge: it does not appear in the console pod's log.
+
+**Declaring 4.22.5 to the same 4.16 console — it tries to load, and fails outright:**
+
+```
+ReferenceError: __load_plugin_entry__ is not defined
+Failed to load scripts of plugin file-integrity-console-plugin
+  ... loaded without entry callback
+```
+
+The entry-registration contract changed at 4.22: the SDK changelog deprecates `loadPluginEntry`
+in favour of `__load_plugin_entry__` and says runtime support for plugins built for 4.21 or
+older will be removed later. A 4.16 console defines only the old one.
+
+**This corrects an earlier claim in these documents**, which said that widening the bound would
+give a page rendering unstyled with empty route parameters. It does not: the plugin never
+executes, so nothing renders at all. The PatternFly and react-router mismatches below remain
+real, but they are *predictions* about a build that registers successfully — that is, about the
+release branch — and are not what happens today.
+
+### Still to establish, and only observable with a real old build
+
+- **PatternFly 6 here, 5 there.** The plugin ships no CSS of its own, so every class name it
+  emits resolves against the console's stylesheet. Additionally, on 4.16–4.18 PatternFly is a
+  module the console *shares* with plugins, so the components that render may come from the
+  console's build rather than the lockfile's.
+- **react-router 7 here, v5 there.** Routes are registered by the console and `useParams()` reads
+  *its* router's context; with a different copy of the package that context does not exist,
+  `useParams()` returns `{}` and the page says "node not found" with no error at all.
+- **React 18 here, 17 there.**
+
+The mandatory consequence of the entry-callback finding: the release branch **must** be built
+with the older `ConsoleRemotePlugin` (SDK webpack plugin 1.1.0), which emits the registration
+call older consoles implement. It was already planned as a dependency pin; it is not optional.
 
 ## To do
 

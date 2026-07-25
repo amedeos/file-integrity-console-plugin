@@ -56,16 +56,17 @@ file it touches and buries real changes.
   the other breaks file retrieve with no visible error.
 - **`@console/pluginAPI` is a closed range on a release branch, and both ends
   carry `-0`.** `>=4.16.0-0 <4.19.0-0`, not `>=4.16.0`. The floor keeps the
-  plugin off consoles that predate it; the **ceiling matters just as much**,
-  because this plugin ships no CSS of its own — every class name it emits is
-  resolved against the console's own stylesheet, so a PatternFly 5 build
-  reaching a 4.22 console renders completely unstyled rather than slightly off.
-  The `-0` suffixes are what make the bound match a nightly or EC build, whose
-  version is a prerelease.
-- **Never widen the bound on `main` instead of branching.** Underneath it sit
-  PatternFly and react-router majors that do not match; widening alone turns a
-  clean refusal into a page that renders unstyled and reads its route parameters
-  as empty.
+  plugin off consoles that predate it; the ceiling keeps it off newer ones,
+  where the same build is equally wrong. The `-0` suffixes are what make the
+  bound match a nightly or EC build, whose version is a prerelease.
+- **Never widen the bound instead of branching.** What is underneath is not a
+  question of degree. Observed on a real 4.16 console, told to load a 4.22
+  build: `__load_plugin_entry__ is not defined`, then "loaded without entry
+  callback" — the entry-registration contract between console and plugin changed
+  at 4.22, so the plugin does not execute at all. Below that sit the PatternFly
+  and react-router majors, which would produce their own failures if execution
+  ever got that far. A build belongs to one generation; widening a bound does
+  not make it belong to two.
 - **Nothing outside `src/lib/k8s.ts`, `src/lib/router.ts` and `src/lib/styles.ts`
   may name a console-versioned API.** No component imports
   `@openshift-console/dynamic-plugin-sdk` or `react-router` directly, and none
@@ -107,20 +108,43 @@ pins in `package.json`, the `@console/pluginAPI` bound, and — for the PatternF
 
 ### Test against another generation without another cluster
 
-`quay.io/openshift/origin-console` publishes a tag per release, and
-`start-console.sh` takes the image from the environment:
+`quay.io/openshift/origin-console` publishes a tag per release, and a published
+plugin image already serves the assets over plain HTTP. Two containers, no node
+toolchain and no second cluster — `podman` and `oc` are the whole requirement:
 
 ```sh
-CONSOLE_IMAGE=quay.io/openshift/origin-console:4.16 \
-BRIDGE_RELEASE_VERSION=4.16.30 \
-yarn start-console      # with `yarn start` in another shell
+podman run -d --rm --name fio-plugin --network=host \
+  quay.io/asalvati/file-integrity-console-plugin:latest \
+  --listen=:9001 --tls-cert-file= --tls-key-file=
+
+podman run --rm --network=host \
+  -e BRIDGE_USER_AUTH=disabled \
+  -e BRIDGE_K8S_MODE=off-cluster \
+  -e BRIDGE_K8S_AUTH=bearer-token \
+  -e BRIDGE_K8S_MODE_OFF_CLUSTER_SKIP_VERIFY_TLS=true \
+  -e BRIDGE_K8S_MODE_OFF_CLUSTER_ENDPOINT="$(oc whoami --show-server)" \
+  -e BRIDGE_K8S_AUTH_BEARER_TOKEN="$(oc whoami --show-token)" \
+  -e BRIDGE_USER_SETTINGS_LOCATION=localstorage \
+  -e BRIDGE_I18N_NAMESPACES=plugin__file-integrity-console-plugin \
+  -e BRIDGE_PLUGINS=file-integrity-console-plugin=http://localhost:9001 \
+  -e BRIDGE_RELEASE_VERSION=4.16.55 \
+  quay.io/openshift/origin-console:4.16
 ```
 
-That is a real 4.16 console: its own PatternFly 5 stylesheet, its own router,
-and its own `pluginAPI` check — driving whatever cluster `oc` is logged in to.
-`BRIDGE_RELEASE_VERSION` is what makes the version gate evaluate at all; with it
-unset the console skips the check, so a local run proves nothing about the
-bound.
+Console on http://localhost:9000; `podman rm -f fio-plugin` afterwards. Change
+the console tag to test another generation, and the plugin image tag to test
+another branch's build — Quay tags by branch, so `release-4.16` is there as soon
+as the branch is pushed.
+
+Two things this buys that a cluster does not:
+
+- `BRIDGE_RELEASE_VERSION` is what makes the version gate evaluate at all. With
+  it unset the console skips the check entirely, so a local run proves nothing
+  about the bound unless it is set.
+- The image tag and the declared version are **independent**. Declaring 4.22.5
+  to a 4.16 console forces it past the gate and shows what the mismatch actually
+  does — which is how the entry-callback failure above was found. Use a real
+  z-stream from the `stable-4.x` channel rather than an invented one.
 
 ### Details worth not rediscovering
 
