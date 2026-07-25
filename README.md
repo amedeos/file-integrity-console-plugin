@@ -15,15 +15,28 @@ visible only on clusters where the `FileIntegrity` CRD exists.
 ## Compatibility
 
 Built against the OpenShift **4.22** console SDK. The plugin manifest declares
-`@console/pluginAPI: >=4.22.0-0`, so an older console skips it outright: no menu
-entry, an entry in the console pod log, and nothing else broken.
+`@console/pluginAPI: >=4.22.0-0`, so an older console skips it outright, saying
+so in the browser console and nowhere else:
 
-That gate is deliberate and should not be widened on its own. The UI targets
-PatternFly 6 and takes its router context from the console, both of which differ
-across console generations — lowering the bound would replace a clean refusal
-with a page that renders unstyled and reads its route parameters as empty.
-Support for earlier generations, when it comes, belongs on its own branch built
-against that generation's SDK.
+```
+Failed to resolve dependencies of plugin file-integrity-console-plugin
+Unmet dependency on Console plugin API:
+@console/pluginAPI: required >=4.22.0-0, current 4.16.55
+```
+
+No menu entry, no error in the user's face, and the rest of the console
+unaffected. If the plugin is missing from a cluster you believe should have it,
+that message is the first place to look.
+
+The bound is not conservatism. Told to load anyway, a 4.22 build on a 4.16
+console **fails outright** — `__load_plugin_entry__ is not defined`, because the
+entry-registration contract between console and plugin changed in 4.22
+(`loadPluginEntry` before it). The plugin does not execute a line, so nothing
+renders at all. Verified against a real 4.16 console, not inferred.
+
+Support for earlier consoles therefore has to be a build of its own, against
+that generation's SDK, on its own branch — see
+[AGENTS.md](AGENTS.md#supporting-more-than-one-console-generation).
 
 ## What it does
 
