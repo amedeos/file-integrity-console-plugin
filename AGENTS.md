@@ -54,11 +54,18 @@ file it touches and buries real changes.
 - **`PLUGIN_NAME` in `src/constants.ts` must equal the ConsolePlugin name** the
   chart creates: the frontend builds its proxy URL from it. Changing one without
   the other breaks file retrieve with no visible error.
-- **Do not lower `@console/pluginAPI` in `package.json`.** It is what makes an
-  older console skip the plugin cleanly. Underneath it sit PatternFly and
-  react-router majors that do not match; widening the bound alone turns a clean
-  refusal into a page that renders unstyled and reads its route parameters as
-  empty. Older consoles get their own branch — see `docs/STATUS.md`.
+- **`@console/pluginAPI` is a closed range on a release branch, and both ends
+  carry `-0`.** `>=4.16.0-0 <4.19.0-0`, not `>=4.16.0`. The floor keeps the
+  plugin off consoles that predate it; the **ceiling matters just as much**,
+  because this plugin ships no CSS of its own — every class name it emits is
+  resolved against the console's own stylesheet, so a PatternFly 5 build
+  reaching a 4.22 console renders completely unstyled rather than slightly off.
+  The `-0` suffixes are what make the bound match a nightly or EC build, whose
+  version is a prerelease.
+- **Never widen the bound on `main` instead of branching.** Underneath it sit
+  PatternFly and react-router majors that do not match; widening alone turns a
+  clean refusal into a page that renders unstyled and reads its route parameters
+  as empty.
 - **Nothing outside `src/lib/k8s.ts`, `src/lib/router.ts` and `src/lib/styles.ts`
   may name a console-versioned API.** No component imports
   `@openshift-console/dynamic-plugin-sdk` or `react-router` directly, and none
@@ -71,6 +78,11 @@ file it touches and buries real changes.
 - **The version is written in four places** — `version` and
   `consolePlugin.version` in `package.json`, `appVersion` and `version` in the
   chart — and a git tag is what names the released image. Keep them in step.
+- **A release branch's version carries its generation**: `0.1.1-ocp4.16`, not
+  `0.1.1`. Valid semver, accepted by the manifest schema, and the console then
+  displays which build is installed. Without it, the same `v0.1.1` cut on two
+  branches produces two different images racing for one image tag — and with
+  `IfNotPresent` the loser is invisible.
 
 ## Supporting more than one console generation
 
@@ -83,31 +95,68 @@ them. There are **three** generations between 4.16 and 4.22, not two:
 | PatternFly | 5.1 | 6.2 | 6.4 |
 | React | 17 | 17 | 18 |
 | router | `react-router-dom` 5.3 | `react-router-dom` 5.3 | `react-router` 7.13 |
-| SDK | 1.4 | `4.19-latest` | `4.22-latest` |
-| `@console/pluginAPI` | `*` | `^4.19.0` | `>=4.22.0-0` |
+| SDK | 1.2.0 (webpack 1.1.0) | `4.19-latest` | `4.22-latest` |
+| `@console/pluginAPI` | `>=4.16.0-0 <4.19.0-0` | `>=4.19.0-0 <4.22.0-0` | `>=4.22.0-0` |
 
 PatternFly breaks at 4.19; React and the router break at 4.22. The middle
 generation is a subset of neither neighbour.
 
 A release branch differs from `main` in the three shim modules, the dependency
-pins in `package.json`, the `@console/pluginAPI` bound, `tsconfig.json`, and —
-for the PatternFly 5 branch only — the component markup.
+pins in `package.json`, the `@console/pluginAPI` bound, and — for the PatternFly
+5 branch only — the component markup.
 
-Two details worth not rediscovering:
+### Test against another generation without another cluster
 
+`quay.io/openshift/origin-console` publishes a tag per release, and
+`start-console.sh` takes the image from the environment:
+
+```sh
+CONSOLE_IMAGE=quay.io/openshift/origin-console:4.16 \
+BRIDGE_RELEASE_VERSION=4.16.30 \
+yarn start-console      # with `yarn start` in another shell
+```
+
+That is a real 4.16 console: its own PatternFly 5 stylesheet, its own router,
+and its own `pluginAPI` check — driving whatever cluster `oc` is logged in to.
+`BRIDGE_RELEASE_VERSION` is what makes the version gate evaluate at all; with it
+unset the console skips the check, so a local run proves nothing about the
+bound.
+
+### Details worth not rediscovering
+
+- **Do not downgrade TypeScript on a release branch**, whatever the template
+  branch does. `src/lib/decode.ts` uses `Uint8Array<ArrayBuffer>` (generic only
+  from the TS 5.7 lib) and the `DecompressionStream` type (5.2);
+  `src/lib/backend.ts` relies on `in`-operator narrowing (4.9);
+  `src/lib/aide-parser.ts` uses `Array.prototype.at` (ES2022 lib). Downgrading
+  forces edits to `src/lib/`, which is exactly the code that must stay identical
+  across branches. Nothing requires it: TypeScript never reaches the browser and
+  the old SDK's peer range has no upper bound. Keep `tsconfig.json` identical
+  everywhere.
 - The SDK's function names differ, opposite to the obvious guess: **4.22 exports
   only `k8sGet` / `k8sPatch`**, while 4.16 and 4.19 export `k8sGetResource` /
   `k8sPatchResource`. `src/lib/k8s.ts` keeps the 4.22 spelling as this plugin's
   vocabulary; older branches alias to it.
-- `src/lib/aide-parser.ts` uses `Array.prototype.at`, declared only in
-  `lib.es2022.array.d.ts`. A branch on an older TypeScript must say so in
-  `tsconfig.json`'s `lib`.
+- **On 4.16–4.18 PatternFly is a module the console *shares* with plugins**, with
+  a fallback allowed; from 4.19 it is not shared and the plugin bundles its own.
+  So on the oldest generation the components that actually render may come from
+  the console's PatternFly build rather than the one in the lockfile — a
+  component missing there fails at runtime, in the browser, with CI green.
+  Check this against the real console image before designing around any
+  particular PatternFly 5 API.
 
 **Paths that must never diverge between branches:** `backend/`, `charts/`,
 `Containerfile`, `.github/workflows/ci.yml`, `console-extensions.json`,
-`locales/`, and all of `src/lib/` except the three shims. Author changes to
-those on `main` and cherry-pick them; the first backend fix written directly on
-a release branch is where three branches quietly become three products.
+`locales/`, `tsconfig.json`, and all of `src/lib/` except the three shims.
+Author changes to those on `main` and merge `main` forward into the release
+branches — never rebase a pushed branch, and never author the change on the
+branch. The first backend fix written directly on a release branch is where
+three branches quietly become three products.
+
+Discipline is not the mechanism. CI on a release branch should assert that
+`git diff --name-only origin/main HEAD` contains nothing outside that branch's
+declared delta, so a fix landing on `main` does not merely fail to arrive — it
+turns the release branch red until someone merges it.
 
 ## Things that have already cost time
 
