@@ -69,10 +69,50 @@ that the plugin never lends its own authority to a caller:
 - Reads are capped at `backend.maxFileBytes` (1 MiB by default) and executed as
   a fixed argv (`head -c N -- /hostroot<path>`), never a shell string.
 - Every attempt, allowed or denied, is written to the pod log as a structured
-  audit record with user, node, path and outcome.
+  audit record with user, node, path and outcome. See
+  [Where the audit trail lives](#where-the-audit-trail-lives).
 - The whole feature is **off by default** (`backend.features.fileRetrieve`).
   When off, the endpoint answers 501 and the backend does not even build a
   Kubernetes client.
+
+### Where the audit trail lives
+
+Two places, and the important one is not ours.
+
+**The API server's audit log is the authoritative record.** Every read goes
+through a `pods/exec` against the node's AIDE pod, and the API server logs it
+with the caller, the pod, the full command — which contains the file path — and
+the RBAC decision that allowed it. This plugin can neither forge nor suppress
+those entries:
+
+```sh
+oc adm node-logs --role=master --path=kube-apiserver/audit.log \
+  | sed 's/^[^ ]* //' | grep -F '%2Fhostroot' \
+  | python3 -c 'import sys, json, urllib.parse as u
+for line in sys.stdin:
+    try: e = json.loads(line)
+    except ValueError: continue
+    q = u.parse_qs(u.urlparse(e["requestURI"]).query)
+    print(e["requestReceivedTimestamp"], e["user"]["username"],
+          e["objectRef"]["name"], q["command"][-1],
+          e["annotations"].get("authorization.k8s.io/decision"))'
+```
+
+**The plugin's own log is the convenient one.** `kubectl logs` on the plugin
+pods, filtered on `"audit":true`, gives one JSON record per attempt with the
+resolved username, node, path and outcome (`allowed`, `denied-rbac`,
+`no-pod`, `read-failed`). Unlike the API server's record it also covers the
+attempts that never reached the API server at all — a path refused by the deny
+list, a request with no bearer token — which are the ones worth alerting on.
+
+No Kubernetes `Event` is emitted, although an earlier design called for one.
+Creating it with the caller's token fails exactly for the users whose attempts
+matter most, since someone denied `pods/exec` is usually also denied
+`create events`, and a request with no token has no user at all. Creating it
+with the plugin's own ServiceAccount would mean giving that account a
+permission it otherwise does not need, and the deny-list check runs before
+authentication, so unauthenticated callers could drive event creation. An
+Event is also the wrong store for this: the default `event-ttl` is three hours.
 
 ## Install
 

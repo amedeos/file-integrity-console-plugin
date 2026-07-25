@@ -324,7 +324,18 @@ func (s *server) handleNodeFile(w http.ResponseWriter, r *http.Request) {
 // audit records every attempt to read a node file, allowed or not.
 //
 // This is the record of who looked at what on which node. It is deliberately
-// emitted for denials too, since a run of denials is the interesting signal.
+// emitted for denials too, since a run of denials is the interesting signal —
+// and denials are the part the API server cannot log for us, because a request
+// stopped by the deny list or by a missing token never reaches it.
+//
+// A log line, not a Kubernetes Event. Emitting an Event as the caller fails for
+// precisely the users whose attempts matter most: someone denied pods/exec is
+// usually also denied create events, and an unauthenticated request has no user
+// to act as. Emitting it as this pod's own ServiceAccount would give that
+// account the only permission it otherwise needs, and would let unauthenticated
+// callers drive writes, since the deny-list check runs before authentication.
+// The authoritative trail is the API server's audit log, which records the
+// pods/exec with the caller, the pod and the full command including the path.
 func (s *server) audit(user, node, path, outcome, detail string) {
 	s.log.Info("node file access",
 		"audit", true,
