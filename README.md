@@ -116,10 +116,29 @@ Event is also the wrong store for this: the default `event-ttl` is three hours.
 
 ## Install
 
-### Build and push the image
+### The image
+
+Released images are built by Quay from this repository, for **linux/amd64
+only**. On another architecture the pod fails with `exec format error`; making
+the image multi-arch is cheap when it is needed, because the web assets are
+architecture-independent and the Go binary is `CGO_ENABLED=0`, so both build
+stages can stay native and only the runtime layer varies.
+
+Two things to get right when configuring the Quay build trigger:
+
+- **Dockerfile path: `/Containerfile`.** Quay's wizard calls the field
+  "Dockerfile" and offers to detect one; this repository has none, on purpose.
+  Point it at `/Containerfile` explicitly. If a Quay version refuses a path
+  whose basename is not `Dockerfile`, add a `Dockerfile` symlink rather than
+  renaming the file.
+- **Build context: `/`.** The Containerfile copies `backend/`, `src/`,
+  `locales/` and `.yarn/releases`, so it needs the repository root. Nothing
+  outside version control is required — the image builds from a clean checkout.
+
+To build it yourself instead:
 
 ```sh
-podman build -t quay.io/<org>/file-integrity-console-plugin:0.1.0 .
+podman build -f Containerfile -t quay.io/<org>/file-integrity-console-plugin:0.1.0 .
 podman push quay.io/<org>/file-integrity-console-plugin:0.1.0
 ```
 

@@ -119,10 +119,17 @@ Due bug trovati dal cluster e corretti:
    in cache**. Dopo una nuova build serve `oc rollout restart deployment/console -n
    openshift-console`, altrimenti il browser continua a caricare il bundle vecchio comunque lo
    si ricarichi. Documentata nel README.
-10. **Pubblicazione su `quay.io/asalvati`** — l'utente fa build e push dell'immagine lì; poi il
-    chart va installato con quel `plugin.image`. Nota: con un tag mutabile come `:latest` serve
-    `plugin.imagePullPolicy=Always`, altrimenti il kubelet riusa l'immagine in cache e un
-    rollout riparte con il binario vecchio (successo apparente).
+10. **Pubblicazione su `quay.io/asalvati`** — deciso il 25 luglio 2026: **solo linux/amd64**, e
+    la build la fa **Quay** con una regola automatica sul repository GitHub, non un workflow di
+    release. Il Containerfile resta quindi senza `TARGETARCH`. Da configurare nel trigger Quay:
+    percorso `/Containerfile` (il wizard cerca un `Dockerfile`, che qui non esiste di proposito)
+    e contesto `/`. Il multi-arch, se servirà, costa poco: gli asset sono JavaScript e il
+    binario è `CGO_ENABLED=0`, quindi entrambi gli stage restano nativi senza emulazione.
+
+    Due trappole già verificate sul campo, entrambe nel README: con un tag mutabile come
+    `:latest` serve `plugin.imagePullPolicy=Always`, altrimenti il kubelet riusa l'immagine in
+    cache e il rollout riparte con il binario vecchio dichiarando successo; e dopo ogni nuova
+    build va riavviata la console, che tiene il manifest del plugin in cache.
 
 ## Note d'ambiente
 
