@@ -20,6 +20,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/util/httpstream"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/remotecommand"
 
@@ -186,6 +187,11 @@ func (r *Reader) Read(
 // newExecutor prefers the WebSocket transport and falls back to SPDY, which is
 // what remotecommand's fallback executor does; both are needed because older
 // API servers do not speak the WebSocket protocol.
+//
+// The predicate must only match failures to *establish* the stream. Falling
+// back on any error re-runs the command whenever it merely exits non-zero — so
+// a missing file is read twice and its stderr is reported twice. These are the
+// same conditions kubectl falls back on.
 func newExecutor(user *authz.UserClient, u *url.URL) (remotecommand.Executor, error) {
 	spdy, err := remotecommand.NewSPDYExecutor(user.Config, "POST", u)
 	if err != nil {
@@ -195,5 +201,7 @@ func newExecutor(user *authz.UserClient, u *url.URL) (remotecommand.Executor, er
 	if err != nil {
 		return spdy, nil
 	}
-	return remotecommand.NewFallbackExecutor(ws, spdy, func(error) bool { return true })
+	return remotecommand.NewFallbackExecutor(ws, spdy, func(err error) bool {
+		return httpstream.IsUpgradeFailure(err) || httpstream.IsHTTPSProxyError(err)
+	})
 }

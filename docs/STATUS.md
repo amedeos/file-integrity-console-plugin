@@ -46,19 +46,54 @@ riderivare) e la procedura di verifica. Leggerlo prima di riprendere.
   pattern alla deny-list senza ricopiare i default (una copia dei default invecchia e finisce
   per permettere ciò che un default più recente negherebbe).
 
+## Verificato sul lab (25 luglio 2026)
+
+Immagine costruita **in-cluster** con `oc new-build --binary --strategy=docker` +
+`dockerfilePath: Containerfile`, perché in ambiente di sviluppo non c'è podman. Il registry
+interno del cluster era `Removed`: riabilitato con `managementState: Managed` e storage
+`emptyDir` (patch reversibile, immagini non persistenti — va bene per un lab). Dopo la patch
+serve un riavvio dei pod di `openshift-controller-manager`, altrimenti le build falliscono con
+`InvalidOutputReference` perché il controller ha in cache "registry non configurato".
+
+- Containerfile: tutti e tre gli stage costruiscono, immagine 146 MB, push riuscito.
+- `helm install` + Job di patch: il plugin viene aggiunto a `consoles.operator/cluster`
+  **preservando** gli altri già presenti (`monitoring-plugin`, `odf-console`, …).
+- La console registra il plugin e monta la rotta proxy
+  `/api/proxy/plugin/file-integrity-console-plugin/fio-backend/`, cioè esattamente l'URL che il
+  frontend costruisce da `BACKEND_BASE_URL`.
+- Asset statici serviti in TLS dal binario Go, `plugin-manifest.json` con `cache-control:
+  no-cache`, locali `en`/`it` raggiungibili, `/healthz` 200.
+- Retrieve, tutti e otto i casi provati contro il Service:
+  happy path 200 con contenuto reale del nodo; **401** senza `Authorization`; **403** su
+  deny-list; **403** per un SA con solo `view` (niente `pods/exec`); **403** su `..`;
+  **404** file inesistente; **404** nodo senza pod di scan; file da 50 MB → `size: 1048576`,
+  `truncated: true`, `binary: true`, nessun OOM.
+- Log di audit presenti per ogni tentativo, con l'utente giusto
+  (`admin` e `system:serviceaccount:…:fio-viewer`) ed esito.
+
+Due bug trovati dal cluster e corretti:
+
+- `--max-file-bytes` veniva reso come `1.048576e+06` (Helm interpreta i numeri YAML come
+  float64) e il binario rifiutava il flag → `| int64` nel template.
+- il predicato di fallback dell'executor tornava `true` per qualunque errore, quindi a ogni
+  lettura fallita il comando veniva rieseguito su SPDY e lo stderr compariva due volte → ora
+  usa `httpstream.IsUpgradeFailure`/`IsHTTPSProxyError`, come kubectl.
+
 ## Da fare
 
-9. **Audit come Event k8s** — il punto 5.8 del piano chiedeva, oltre al log strutturato (fatto),
-   anche un `Event` sul `FileIntegrityNodeStatus` del nodo. Non implementato: creandolo con le
-   credenziali dell'utente servirebbe `create events` nel namespace, che un utente con solo
-   `view` non ha, e la lettura fallirebbe per un motivo scollegato. Da decidere se crearlo con
-   il SA del backend (che però oggi non ha alcun ruolo) o lasciare solo il log.
-10. **Build dell'immagine** — nell'ambiente di sviluppo non c'è podman, quindi il
-    Containerfile **non è mai stato costruito**. I singoli stage sì: `yarn install`/`yarn build`
-    e `go build` girano puliti in locale.
-11. **Verifica end-to-end sul lab** — i sette punti elencati in fondo al piano, inclusi i
-    **quattro casi negativi obbligatori** del retrieve (deny-list, assenza di `Authorization`,
-    utente senza `pods/exec`, file oltre `maxBytes`).
+9. **Verifica della UI nel browser** — restano i punti del piano che richiedono la console
+   aperta: overview, click sul nodo, report parsato con filtri, modale del contenuto, re-init,
+   e il gating quando manca il CRD `FileIntegrity` (che sul lab non si può provare senza
+   disinstallare l'operatore).
+10. **Audit come Event k8s** — il punto 5.8 del piano chiedeva, oltre al log strutturato
+    (fatto), anche un `Event` sul `FileIntegrityNodeStatus` del nodo. Non implementato:
+    creandolo con le credenziali dell'utente servirebbe `create events` nel namespace, che un
+    utente con solo `view` non ha, e la lettura fallirebbe per un motivo scollegato. Da decidere
+    se crearlo con il SA del backend (che però oggi non ha alcun ruolo) o lasciare solo il log.
+11. **Pubblicazione su `quay.io/asalvati`** — l'utente fa build e push dell'immagine lì; poi il
+    chart va installato con quel `plugin.image`. Nota: con un tag mutabile come `:latest` serve
+    `plugin.imagePullPolicy=Always`, altrimenti il kubelet riusa l'immagine in cache e un
+    rollout riparte con il binario vecchio (successo apparente).
 
 ## Note d'ambiente
 
