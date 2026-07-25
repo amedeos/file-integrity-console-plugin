@@ -59,11 +59,55 @@ file it touches and buries real changes.
   react-router majors that do not match; widening the bound alone turns a clean
   refusal into a page that renders unstyled and reads its route parameters as
   empty. Older consoles get their own branch — see `docs/STATUS.md`.
+- **Nothing outside `src/lib/k8s.ts`, `src/lib/router.ts` and `src/lib/styles.ts`
+  may name a console-versioned API.** No component imports
+  `@openshift-console/dynamic-plugin-sdk` or `react-router` directly, and none
+  writes a `pf-v6-` class name or a `--pf-t--global--*` token inline. Those three
+  files are where a console generation's differences live, and they are what
+  keeps a release branch to three files plus dependency pins instead of twenty.
+  See [Supporting more than one console generation](#supporting-more-than-one-console-generation).
 - **`locales/en` and `locales/it` stay key-for-key aligned.** A string added to
   one and not the other renders as a raw key. CI checks this.
 - **The version is written in four places** — `version` and
   `consolePlugin.version` in `package.json`, `appVersion` and `version` in the
   chart — and a git tag is what names the released image. Keep them in step.
+
+## Supporting more than one console generation
+
+`main` targets OpenShift 4.22 and later. Older consoles are served by release
+branches, because the frameworks the console shares with plugins change under
+them. There are **three** generations between 4.16 and 4.22, not two:
+
+| | 4.16 – 4.18 | 4.19 – 4.21 | 4.22+ (`main`) |
+|---|---|---|---|
+| PatternFly | 5.1 | 6.2 | 6.4 |
+| React | 17 | 17 | 18 |
+| router | `react-router-dom` 5.3 | `react-router-dom` 5.3 | `react-router` 7.13 |
+| SDK | 1.4 | `4.19-latest` | `4.22-latest` |
+| `@console/pluginAPI` | `*` | `^4.19.0` | `>=4.22.0-0` |
+
+PatternFly breaks at 4.19; React and the router break at 4.22. The middle
+generation is a subset of neither neighbour.
+
+A release branch differs from `main` in the three shim modules, the dependency
+pins in `package.json`, the `@console/pluginAPI` bound, `tsconfig.json`, and —
+for the PatternFly 5 branch only — the component markup.
+
+Two details worth not rediscovering:
+
+- The SDK's function names differ, opposite to the obvious guess: **4.22 exports
+  only `k8sGet` / `k8sPatch`**, while 4.16 and 4.19 export `k8sGetResource` /
+  `k8sPatchResource`. `src/lib/k8s.ts` keeps the 4.22 spelling as this plugin's
+  vocabulary; older branches alias to it.
+- `src/lib/aide-parser.ts` uses `Array.prototype.at`, declared only in
+  `lib.es2022.array.d.ts`. A branch on an older TypeScript must say so in
+  `tsconfig.json`'s `lib`.
+
+**Paths that must never diverge between branches:** `backend/`, `charts/`,
+`Containerfile`, `.github/workflows/ci.yml`, `console-extensions.json`,
+`locales/`, and all of `src/lib/` except the three shims. Author changes to
+those on `main` and cherry-pick them; the first backend fix written directly on
+a release branch is where three branches quietly become three products.
 
 ## Things that have already cost time
 
@@ -82,6 +126,19 @@ file it touches and buries real changes.
 - **jsdom measures every element as zero-sized.** Layout and popper placement
   cannot be asserted in a unit test; do not write one that pretends otherwise.
   Test the interaction underneath and verify the appearance in a browser.
+- **A control character in a source file makes the whole file invisible.** A raw
+  NUL byte reached `src/components/FileContentModal.tsx` where an escape
+  sequence was meant. Git then reported the file as binary and `grep` skipped it
+  without a word, so a repository-wide search for PatternFly class names
+  answered "none" while three sat in that file. Write control characters as
+  escapes, and treat `Bin ... bytes` in a `git diff --stat` of a source file as
+  a defect rather than a curiosity. To check the tree:
+
+  ```sh
+  for f in $(git ls-files); do
+    LC_ALL=C grep -qP '\x00' "$f" 2>/dev/null && echo "$f"
+  done
+  ```
 
 ## Environment
 
