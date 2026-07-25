@@ -16,30 +16,49 @@ riderivare) e la procedura di verifica. Leggerlo prima di riprendere.
 4. **Frontend** — `NodeStatusOverviewPage`, `NodeReportPage`, `AideReportTable`,
    `FileContentModal`, `ReinitActions`, `ConditionLabel`, hook `useFileIntegrityData`,
    `models.ts`, `types.ts`. Locali `en` + `it` allineate (89 chiavi).
+   `yarn test` → 3 suite, 39 test verdi. `yarn build` produce `dist/` con manifest e locali.
+5. **Backend Go** (`backend/`) — `cmd/server/main.go`, `internal/authz` (client k8s dal token
+   utente + `SelfSubjectReview`/`SelfSubjectAccessReview`), `internal/nodefile` (lookup del pod
+   `aide-*` sul nodo + exec nel container `daemon`), `internal/policy` (deny-list path, limiti)
+   con `policy_test.go`. **`go vet`, `go build` e `go test` passano tutti.**
+6. **Helm chart** (`charts/file-integrity-console-plugin/`) — riscritto per il binario Go
+   singolo: via il ConfigMap `nginx.conf`, ConfigMap di policy per le deny-list, Deployment con
+   flag del binario + probe su `/healthz` + `readOnlyRootFilesystem`, Service con
+   `service.beta.openshift.io/serving-cert-secret-name`, `ConsolePlugin` con
+   `proxy[].alias: fio-backend` e `authorization: UserToken`, ServiceAccount **senza alcun
+   ruolo**, Job `post-install`/`post-upgrade` che abilita il plugin e Job `pre-delete` che lo
+   rimuove. `helm lint` e `helm template` puliti nelle varie combinazioni di values.
+7. **Containerfile** multi-stage (asset node → build Go → runtime ubi-minimal, non-root, porta
+   9443) e **`.containerignore`**.
+8. **README** — architettura, modello di sicurezza, install, tabella dei values, dev loop.
 
-## In corso
+## Scostamenti consapevoli dal piano
 
-5. **Backend Go** (`backend/`) — codice scritto per intero: `cmd/server/main.go`,
-   `internal/authz` (client k8s dal token utente + `SelfSubjectAccessReview`),
-   `internal/nodefile` (lookup del pod `aide-*` sul nodo + exec nel container `daemon`),
-   `internal/policy` (deny-list path, limiti) con `policy_test.go`.
-
-   `go vet ./...` passa pulito. **`go build` e `go test` non sono ancora stati eseguiti** —
-   erano il passo successivo quando la sessione si è chiusa.
+- **Niente ClusterRole `tokenreviews: create`** per il ServiceAccount del backend. Il piano lo
+  prevedeva assumendo `TokenReview`; il codice usa `SelfSubjectReview`, che gira *come l'utente*
+  e non richiede alcun privilegio. L'account resta quindi senza ruoli, il che è più stretto.
+- **Il `proxy` nel `ConsolePlugin` è dichiarato sempre**, anche con
+  `backend.features.fileRetrieve: false`. L'interruttore vero è il flag del backend, che
+  risponde 501 con un messaggio che la modale già traduce in "funzione disabilitata"; togliendo
+  il proxy la console risponderebbe 404 e la UI direbbe "nessun pod di scan sul nodo",
+  cioè il motivo sbagliato.
+- **Flag `--extra-deny-list-file` aggiunto** al backend, così i values possono *aggiungere*
+  pattern alla deny-list senza ricopiare i default (una copia dei default invecchia e finisce
+  per permettere ciò che un default più recente negherebbe).
 
 ## Da fare
 
-6. **Helm chart** — `charts/file-integrity-console-plugin/` è ancora il **template upstream
-   intatto** (basato su nginx, nome `openshift-console-plugin`). Va riscritto per il binario Go
-   singolo: rimuovere il ConfigMap `nginx.conf`, Service con
-   `service.beta.openshift.io/serving-cert-secret-name`, `ConsolePlugin` con
-   `proxy[].alias: fio-backend` e `authorization: UserToken`, ConfigMap di policy (deny-list,
-   `maxBytes`, `features.fileRetrieve: false` di default), ServiceAccount con ClusterRole
-   minima (`tokenreviews: create`). Gli hook `patch-consoles` del template si possono tenere.
-7. **Dockerfile multi-stage** (build asset node → build Go → runtime) e **README**.
-8. **Verifica end-to-end sul lab** — i sette punti elencati in fondo al piano, inclusi i
-   **quattro casi negativi obbligatori** del retrieve (deny-list, assenza di `Authorization`,
-   utente senza `pods/exec`, file oltre `maxBytes`).
+9. **Audit come Event k8s** — il punto 5.8 del piano chiedeva, oltre al log strutturato (fatto),
+   anche un `Event` sul `FileIntegrityNodeStatus` del nodo. Non implementato: creandolo con le
+   credenziali dell'utente servirebbe `create events` nel namespace, che un utente con solo
+   `view` non ha, e la lettura fallirebbe per un motivo scollegato. Da decidere se crearlo con
+   il SA del backend (che però oggi non ha alcun ruolo) o lasciare solo il log.
+10. **Build dell'immagine** — nell'ambiente di sviluppo non c'è podman, quindi il
+    Containerfile **non è mai stato costruito**. I singoli stage sì: `yarn install`/`yarn build`
+    e `go build` girano puliti in locale.
+11. **Verifica end-to-end sul lab** — i sette punti elencati in fondo al piano, inclusi i
+    **quattro casi negativi obbligatori** del retrieve (deny-list, assenza di `Authorization`,
+    utente senza `pods/exec`, file oltre `maxBytes`).
 
 ## Note d'ambiente
 
@@ -49,5 +68,7 @@ riderivare) e la procedura di verifica. Leggerlo prima di riprendere.
   export PATH=/var/tmp/go/bin:$PATH GOPATH=/var/tmp/gopath \
          GOMODCACHE=/var/tmp/gomod GOCACHE=/var/tmp/gocache
   ```
-  `/var/tmp` è un tmpfs: si svuota al riavvio del container, va rifatto ogni volta.
+  `/var/tmp` è un tmpfs: si svuota al riavvio del container, va rifatto ogni volta. Vale lo
+  stesso per `helm`, anch'esso assente (`oc` e `kubectl` invece ci sono).
+- `yarn` non è nel PATH: usare il binario committato, `node .yarn/releases/yarn-4.14.1.cjs <cmd>`.
 - Il token del cluster di lab è fornito dall'utente in chat, non è salvato nel repo.

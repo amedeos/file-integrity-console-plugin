@@ -1,14 +1,18 @@
 {{- if .Values.plugin.jobs.patchConsoles.enabled }}
+# Counterpart of the post-install patch: on uninstall, take the plugin back out
+# of the console's plugin list. Without this, `helm uninstall` leaves a name
+# behind that resolves to nothing, and the console logs a failed plugin load on
+# every page view.
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ template "file-integrity-console-plugin.patcherName" . }}
+  name: {{ template "file-integrity-console-plugin.patcherName" . }}-cleanup
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "file-integrity-console-plugin.labels" . | nindent 4 }}
   annotations:
-    helm.sh/hook: post-install,post-upgrade
-    helm.sh/hook-delete-policy: before-hook-creation
+    helm.sh/hook: pre-delete
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
 spec:
   parallelism: 1
   backoffLimit: 4
@@ -25,7 +29,7 @@ spec:
       terminationGracePeriodSeconds: 400
       dnsPolicy: ClusterFirst
       containers:
-        - name: {{ template "file-integrity-console-plugin.patcherName" . }}
+        - name: {{ template "file-integrity-console-plugin.patcherName" . }}-cleanup
           image: {{ required "Patcher image must be specified!" .Values.plugin.jobs.patchConsoles.image }}
           {{- if and (.Values.plugin.securityContext.enabled) (.Values.plugin.jobs.patchConsoles.containerSecurityContext) }}
           securityContext: {{ tpl (toYaml (omit .Values.plugin.jobs.patchConsoles.containerSecurityContext "enabled")) $ | nindent 12 }}
@@ -38,7 +42,7 @@ spec:
             - |
                 set -euo pipefail
                 existingPlugins=$(oc get consoles.operator.openshift.io cluster -o json | jq -c '.spec.plugins // []')
-                mergedPlugins=$(jq --argjson existingPlugins "${existingPlugins}" --argjson consolePlugin '["{{ template "file-integrity-console-plugin.name" . }}"]' -c -n '$existingPlugins + $consolePlugin | unique')
-                patchedPlugins=$(jq --argjson mergedPlugins "${mergedPlugins}" -n -c '{ "spec": { "plugins": $mergedPlugins } }')
+                remainingPlugins=$(jq --argjson existingPlugins "${existingPlugins}" --argjson consolePlugin '["{{ template "file-integrity-console-plugin.name" . }}"]' -c -n '$existingPlugins - $consolePlugin')
+                patchedPlugins=$(jq --argjson remainingPlugins "${remainingPlugins}" -n -c '{ "spec": { "plugins": $remainingPlugins } }')
                 oc patch consoles.operator.openshift.io cluster --patch "${patchedPlugins}" --type=merge
 {{- end }}

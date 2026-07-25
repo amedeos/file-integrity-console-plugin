@@ -1,7 +1,11 @@
 ---
 plugin:
+  # The ConsolePlugin resource name. It is part of the URL the frontend uses to
+  # reach its own backend (`/api/proxy/plugin/<name>/fio-backend`, see
+  # src/constants.ts), so changing it breaks the file-retrieve feature unless
+  # PLUGIN_NAME is changed to match. Empty means the chart name.
   name: ""
-  description: ""
+  description: "File Integrity"
   image: ""
   imagePullPolicy: IfNotPresent
   imagePullSecrets: []
@@ -17,6 +21,7 @@ plugin:
   containerSecurityContext:
     enabled: true
     allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
     capabilities:
       drop:
         - ALL
@@ -24,7 +29,11 @@ plugin:
     requests:
       cpu: 10m
       memory: 50Mi
+    limits:
+      memory: 256Mi
   basePath: /
+  # Empty means the service-serving-certificate operator issues the certificate
+  # into "<name>-cert". Set it to use a certificate you manage yourself.
   certificateSecretName: ""
   serviceAccount:
     create: true
@@ -53,3 +62,34 @@ plugin:
         requests:
           cpu: 10m
           memory: 50Mi
+
+backend:
+  # Namespace the File Integrity Operator runs its scans in. The backend looks
+  # for the AIDE pod of a node here, and checks the caller's pods/exec rights
+  # against this namespace.
+  fileIntegrityNamespace: openshift-file-integrity
+
+  features:
+    # Reading a file off a node means exec'ing into the privileged AIDE pod,
+    # which bind-mounts the node root. Off by default: an installation has to
+    # decide it wants that, rather than inherit it. When off, the endpoint
+    # answers 501 with a message the UI shows as "feature disabled", and the
+    # backend never even builds a Kubernetes client.
+    fileRetrieve: false
+
+  # Largest amount of bytes returned from a node file. Anything beyond is cut
+  # and the response is flagged truncated.
+  maxFileBytes: 1048576
+
+  # Paths the backend refuses to read, whoever asks. Empty means the built-in
+  # defaults compiled into the binary (see backend/internal/policy/policy.go:
+  # /etc/kubernetes/static-pod-resources/**, **/*.key, **/*.pem, **/.ssh/**,
+  # **/shadow and friends). Setting this REPLACES those defaults — to keep them
+  # and add your own, use extraDenyList instead.
+  denyList: []
+
+  # Globs added to whichever list is in effect. This is the safe way to harden:
+  # copying the defaults into denyList is how a copy goes stale and starts
+  # allowing what a newer default would have denied.
+  extraDenyList: []
+  #  - "/etc/my-app/**/*.secret"

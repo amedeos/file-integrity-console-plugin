@@ -1,28 +1,48 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ template "openshift-console-plugin.name" . }}
+  name: {{ template "file-integrity-console-plugin.name" . }}
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "openshift-console-plugin.labels" . | nindent 4 }}
+    {{- include "file-integrity-console-plugin.labels" . | nindent 4 }}
     app.openshift.io/runtime-namespace: {{ .Release.Namespace }}
 spec:
   replicas: {{ .Values.plugin.replicas }}
   selector:
     matchLabels:
-      {{- include "openshift-console-plugin.selectorLabels" . | nindent 6 }}
+      {{- include "file-integrity-console-plugin.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-            {{- include "openshift-console-plugin.labels" . | nindent 8 }}
+        {{- include "file-integrity-console-plugin.labels" . | nindent 8 }}
+      annotations:
+        # Roll the pods when the deny list changes: the lists are read once at
+        # startup, so without this a `helm upgrade` would report success while
+        # the old policy stayed in force.
+        checksum/policy: {{ printf "%s|%s" (toYaml .Values.backend.denyList) (toYaml .Values.backend.extraDenyList) | sha256sum }}
     spec:
       {{- with .Values.plugin.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      serviceAccountName: {{ include "file-integrity-console-plugin.serviceAccountName" . }}
       containers:
-        - name: {{ template "openshift-console-plugin.name" . }}
+        - name: {{ template "file-integrity-console-plugin.name" . }}
           image: {{ required "Plugin image must be specified!" .Values.plugin.image }}
+          args:
+            - --listen=:{{ .Values.plugin.port }}
+            - --tls-cert-file=/var/cert/tls.crt
+            - --tls-key-file=/var/cert/tls.key
+            - --static-dir=/opt/app-root/web
+            - --fio-namespace={{ .Values.backend.fileIntegrityNamespace }}
+            - --max-file-bytes={{ .Values.backend.maxFileBytes }}
+            - --enable-file-retrieve={{ .Values.backend.features.fileRetrieve }}
+            {{- if .Values.backend.denyList }}
+            - --deny-list-file=/etc/file-integrity-plugin/deny-list.txt
+            {{- end }}
+            {{- if .Values.backend.extraDenyList }}
+            - --extra-deny-list-file=/etc/file-integrity-plugin/extra-deny-list.txt
+            {{- end }}
           ports:
             - containerPort: {{ .Values.plugin.port }}
               protocol: TCP
@@ -32,23 +52,40 @@ spec:
           {{- end }}
           resources:
             {{- toYaml .Values.plugin.resources | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.plugin.port }}
+              scheme: HTTPS
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.plugin.port }}
+              scheme: HTTPS
+            initialDelaySeconds: 10
+            periodSeconds: 30
           volumeMounts:
-            - name: {{ template "openshift-console-plugin.certificateSecret" . }}
+            - name: plugin-cert
               readOnly: true
               mountPath: /var/cert
-            - name: nginx-conf
+            {{- if include "file-integrity-console-plugin.hasPolicyConfigMap" . }}
+            - name: policy
               readOnly: true
-              mountPath: /etc/nginx/nginx.conf
-              subPath: nginx.conf
+              mountPath: /etc/file-integrity-plugin
+            {{- end }}
       volumes:
-        - name: {{ template "openshift-console-plugin.certificateSecret" . }}
+        - name: plugin-cert
           secret:
-            secretName: {{ template "openshift-console-plugin.certificateSecret" . }}
+            secretName: {{ template "file-integrity-console-plugin.certificateSecret" . }}
             defaultMode: 420
-        - name: nginx-conf
+        {{- if include "file-integrity-console-plugin.hasPolicyConfigMap" . }}
+        - name: policy
           configMap:
-            name: {{ template "openshift-console-plugin.name" . }}
+            name: {{ template "file-integrity-console-plugin.policyConfigMap" . }}
             defaultMode: 420
+        {{- end }}
       restartPolicy: Always
       dnsPolicy: ClusterFirst
       {{- if and (.Values.plugin.securityContext.enabled) (.Values.plugin.podSecurityContext) }}
