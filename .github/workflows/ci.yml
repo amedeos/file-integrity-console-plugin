@@ -1,0 +1,176 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A second push to the same branch makes the first run pointless.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+
+      # Yarn 4 is committed under .yarn/releases and pinned by packageManager,
+      # so corepack uses exactly the version developers use. No global install.
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install
+        run: yarn install --immutable
+
+      - name: Lint
+        # The lint script passes --fix, which would hide a violation instead of
+        # reporting it. In CI the sources are checked, not repaired.
+        run: |
+          yarn eslint src --max-warnings 0
+          yarn stylelint 'src/**/*.css' --allow-empty-input
+
+      - name: Typecheck
+        run: yarn tsc --noEmit
+
+      - name: Test
+        run: yarn test
+
+      - name: Build
+        run: yarn build
+
+      # The plugin ships English and Italian. A string added to one catalogue
+      # and not the other renders as a raw key to half the users, which nothing
+      # else here would catch.
+      - name: Locales in sync
+        run: |
+          node - <<'EOF'
+          const fs = require('fs');
+          const load = (lang) =>
+            Object.keys(
+              JSON.parse(
+                fs.readFileSync(
+                  `locales/${lang}/plugin__file-integrity-console-plugin.json`,
+                  'utf8',
+                ),
+              ),
+            ).sort();
+          const en = load('en');
+          const it = load('it');
+          const missing = en.filter((k) => !it.includes(k));
+          const extra = it.filter((k) => !en.includes(k));
+          if (missing.length || extra.length) {
+            console.error('Missing from it:', missing);
+            console.error('Not in en:', extra);
+            process.exit(1);
+          }
+          console.log(`${en.length} keys, en and it agree`);
+          EOF
+
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Vet
+        working-directory: backend
+        run: go vet ./...
+
+      # No -race: the only tests today are pure functions in internal/policy, so
+      # it would cost a cgo toolchain and find nothing. Add it together with the
+      # first test that starts a goroutine.
+      - name: Test
+        working-directory: backend
+        run: go test ./...
+
+      - name: Build
+        working-directory: backend
+        run: go build ./...
+
+  chart:
+    name: Helm chart
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+
+      - name: Lint
+        run: helm lint charts/file-integrity-console-plugin --set plugin.image=example.io/plugin:ci
+
+      # Rendering with --set only ever produced strings, which is how a default
+      # of 1048576 reached a cluster as "1.048576e+06" and crash-looped the pod:
+      # Helm parses YAML numbers as float64. These render the *defaults*.
+      - name: Render with defaults
+        run: |
+          helm template ci charts/file-integrity-console-plugin \
+            --namespace openshift-file-integrity \
+            --set plugin.image=example.io/plugin:ci > /tmp/defaults.yaml
+          grep -q -- '--max-file-bytes=1048576' /tmp/defaults.yaml
+          ! grep -qE -- '--[a-z-]+=[0-9]+\.[0-9]+e\+[0-9]+' /tmp/defaults.yaml
+
+      - name: Render with file retrieve enabled
+        run: |
+          helm template ci charts/file-integrity-console-plugin \
+            --namespace openshift-file-integrity \
+            --set plugin.image=example.io/plugin:ci \
+            --set backend.features.fileRetrieve=true \
+            --set 'backend.extraDenyList={/etc/example/**}' \
+            --set backend.maxFileBytes=2097152 > /tmp/retrieve.yaml
+          grep -q -- '--max-file-bytes=2097152' /tmp/retrieve.yaml
+          grep -q -- '--enable-file-retrieve=true' /tmp/retrieve.yaml
+          grep -q 'authorization: UserToken' /tmp/retrieve.yaml
+          grep -q 'extra-deny-list.txt' /tmp/retrieve.yaml
+
+      # The backend's ServiceAccount is deliberately bound to no role at all;
+      # everything it does runs as the calling user. A rule appearing here is a
+      # design change, not a tweak, so make CI say so out loud.
+      - name: No RBAC for the plugin ServiceAccount
+        run: |
+          helm template ci charts/file-integrity-console-plugin \
+            --namespace openshift-file-integrity \
+            --set plugin.image=example.io/plugin:ci \
+            --set plugin.jobs.patchConsoles.enabled=false > /tmp/norbac.yaml
+          ! grep -qE '^kind: (Cluster)?Role(Binding)?$' /tmp/norbac.yaml
+
+  image:
+    name: Container image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Build only; nothing is pushed from CI. Catches the case where the
+      # sources compile locally but a stage of the Containerfile does not.
+      - name: Build
+        run: podman build -f Containerfile -t file-integrity-console-plugin:ci .
+
+      - name: Binary runs and serves its assets
+        run: |
+          podman run -d --name plugin -p 9443:9443 \
+            file-integrity-console-plugin:ci \
+            --tls-cert-file= --tls-key-file= --listen=:9443
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:9443/healthz && break
+            sleep 2
+          done
+          curl -sf http://localhost:9443/plugin-manifest.json | grep -q file-integrity-console-plugin
+          podman logs plugin
+          podman rm -f plugin

@@ -26,12 +26,17 @@ import {
 import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table';
 import { Timestamp } from '@openshift-console/dynamic-plugin-sdk';
 import { I18N_NS } from '../constants';
-import { FileIntegrity, FileIntegrityNodeStatus, NodeCondition } from '../types';
+import type {
+  FileIntegrity,
+  FileIntegrityNodeStatus,
+  NodeCondition,
+} from '../types';
 import {
   useFileIntegrities,
   useNodeStatuses,
 } from '../hooks/useFileIntegrityData';
 import { isNodeHeldOff, isNodeReinitializing } from '../lib/reinit';
+import { errorMessage } from '../lib/errors';
 import { ConditionLabel } from './ConditionLabel';
 import { ReinitBulkActions } from './ReinitActions';
 
@@ -127,7 +132,7 @@ const NodeStatusOverviewPage: React.FC = () => {
   }, [statuses, search, filter]);
 
   const loaded = fisLoaded && statusesLoaded;
-  const error = fisError || statusesError;
+  const error = fisError ?? statusesError;
 
   return (
     <>
@@ -157,7 +162,7 @@ const NodeStatusOverviewPage: React.FC = () => {
             isInline
             title={t('Could not load File Integrity data')}
           >
-            {String((error as Error)?.message ?? error)}
+            {errorMessage(error)}
           </Alert>
         </PageSection>
       ) : null}
@@ -199,30 +204,36 @@ const NodeStatusOverviewPage: React.FC = () => {
                     aria-label={t('Search by node name')}
                     placeholder={t('Search by node name')}
                     value={search}
-                    onChange={(_e, value) => setSearch(value)}
-                    onClear={() => setSearch('')}
+                    onChange={(_e, value) => {
+                      setSearch(value);
+                    }}
+                    onClear={() => {
+                      setSearch('');
+                    }}
                   />
                 </ToolbarItem>
                 <ToolbarItem>
                   <ToggleGroup aria-label={t('Filter by result')}>
-                    {(['All', 'Failed', 'Errored', 'Succeeded'] as Filter[]).map(
-                      (f) => (
-                        <ToggleGroupItem
-                          key={f}
-                          text={
-                            f === 'All'
-                              ? t('All')
-                              : f === 'Failed'
-                                ? t('Changes detected')
-                                : f === 'Errored'
-                                  ? t('Scan error')
-                                  : t('No changes')
-                          }
-                          isSelected={filter === f}
-                          onChange={() => setFilter(f)}
-                        />
-                      ),
-                    )}
+                    {(
+                      ['All', 'Failed', 'Errored', 'Succeeded'] as Filter[]
+                    ).map((f) => (
+                      <ToggleGroupItem
+                        key={f}
+                        text={
+                          f === 'All'
+                            ? t('All')
+                            : f === 'Failed'
+                              ? t('Changes detected')
+                              : f === 'Errored'
+                                ? t('Scan error')
+                                : t('No changes')
+                        }
+                        isSelected={filter === f}
+                        onChange={() => {
+                          setFilter(f);
+                        }}
+                      />
+                    ))}
                   </ToggleGroup>
                 </ToolbarItem>
               </ToolbarContent>
@@ -299,7 +310,8 @@ const NodeStatusOverviewPage: React.FC = () => {
                               </FlexItem>
                             ) : null}
                           </Flex>
-                          {result?.condition === 'Errored' && result.errorMsg ? (
+                          {result?.condition === 'Errored' &&
+                          result.errorMsg ? (
                             <div className="pf-v6-u-font-size-sm pf-v6-u-color-200">
                               {result.errorMsg}
                             </div>

@@ -24,15 +24,15 @@ import {
   Tr,
 } from '@patternfly/react-table';
 import { I18N_NS } from '../constants';
-import { AideEntry, AideEntryKind, AideReport } from '../types';
+import type { AideEntry, AideEntryKind, AideReport } from '../types';
 
-type Props = {
+interface Props {
   report: AideReport;
   /** Called when the user asks to read a file's current content from the node. */
   onRetrieve?: (entry: AideEntry) => void;
   /** Disables retrieval, e.g. when the backend feature is turned off. */
   retrieveDisabledReason?: string;
-};
+}
 
 const KIND_ORDER: AideEntryKind[] = ['changed', 'added', 'removed'];
 
@@ -40,11 +40,23 @@ const KindLabel: React.FC<{ kind: AideEntryKind }> = ({ kind }) => {
   const { t } = useTranslation(I18N_NS);
   switch (kind) {
     case 'added':
-      return <Label color="blue" isCompact>{t('Added')}</Label>;
+      return (
+        <Label color="blue" isCompact>
+          {t('Added')}
+        </Label>
+      );
     case 'removed':
-      return <Label color="orange" isCompact>{t('Removed')}</Label>;
+      return (
+        <Label color="orange" isCompact>
+          {t('Removed')}
+        </Label>
+      );
     default:
-      return <Label color="red" isCompact>{t('Changed')}</Label>;
+      return (
+        <Label color="red" isCompact>
+          {t('Changed')}
+        </Label>
+      );
   }
 };
 
@@ -109,8 +121,12 @@ export const AideReportTable: React.FC<Props> = ({
               aria-label={t('Search by path')}
               placeholder={t('Search by path')}
               value={search}
-              onChange={(_e, value) => setSearch(value)}
-              onClear={() => setSearch('')}
+              onChange={(_e, value) => {
+                setSearch(value);
+              }}
+              onClear={() => {
+                setSearch('');
+              }}
             />
           </ToolbarItem>
           <ToolbarItem>
@@ -126,7 +142,9 @@ export const AideReportTable: React.FC<Props> = ({
                         : t('Changed')
                   } (${counts[kind]})`}
                   isSelected={kinds.has(kind)}
-                  onChange={() => toggleKind(kind)}
+                  onChange={() => {
+                    toggleKind(kind);
+                  }}
                 />
               ))}
             </ToggleGroup>
@@ -210,7 +228,9 @@ export const AideReportTable: React.FC<Props> = ({
                           variant="link"
                           isInline
                           icon={<FileIcon />}
-                          onClick={() => onRetrieve(entry)}
+                          onClick={() => {
+                            onRetrieve(entry);
+                          }}
                         >
                           {t('View file')}
                         </Button>

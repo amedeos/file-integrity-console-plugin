@@ -152,6 +152,21 @@ oc patch consoles.operator.openshift.io cluster --type=json \
 The console rolls out a new pod after the patch; the menu entry appears once it
 is ready.
 
+### Upgrading to a new build
+
+The console reads a plugin's manifest once and caches it, so a new image alone
+is not enough — it will keep serving the asset filenames it learned at startup,
+and the browser will keep loading the old bundle no matter how hard you reload:
+
+```sh
+oc rollout restart deployment/console -n openshift-console
+```
+
+Note also that `plugin.imagePullPolicy` defaults to `IfNotPresent`, which is
+right for an immutable tag and wrong for a mutable one. Deploying `:latest`
+twice without `Always` leaves the kubelet reusing the cached image, and the
+rollout reports success while running the previous binary.
+
 ### Values worth knowing
 
 | Value | Default | Meaning |
@@ -189,7 +204,16 @@ yarn start-console  # console on :9000, pointed at the logged-in cluster
 
 Translations live in `locales/<lang>/plugin__file-integrity-console-plugin.json`.
 `yarn i18n` regenerates the English catalogue from the sources; the Italian one
-is maintained alongside it and must stay key-for-key aligned.
+is maintained alongside it and must stay key-for-key aligned — CI fails if the
+two drift apart.
+
+Note that `yarn lint` passes `--fix`, so it repairs rather than reports. CI runs
+`yarn eslint src --max-warnings 0` instead, which does not.
+
+`.github/workflows/ci.yml` runs all of the above on every pull request, plus a
+`podman build` of the Containerfile and a set of `helm template` assertions —
+including one that renders the chart with its *defaults*, which is the case that
+once shipped `--max-file-bytes=1.048576e+06` to a cluster.
 
 ## Licence
 

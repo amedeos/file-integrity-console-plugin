@@ -1,4 +1,6 @@
 import * as zlib from 'zlib';
+import { DecompressionStream, ReadableStream } from 'node:stream/web';
+import { TextDecoder } from 'node:util';
 import { ANNOTATIONS, INTEGRITY_LOG_CONTENT_KEY } from '../constants';
 import { extractIntegrityLog, readCountAnnotation } from './decode';
 
@@ -6,13 +8,11 @@ import { extractIntegrityLog, readCountAnnotation } from './decode';
 // exist in every browser the console supports. Polyfill from Node's web streams
 // so the production code path is what gets exercised.
 beforeAll(() => {
-  const webStreams = require('node:stream/web');
-  (globalThis as Record<string, unknown>).DecompressionStream =
-    webStreams.DecompressionStream;
-  (globalThis as Record<string, unknown>).ReadableStream =
-    webStreams.ReadableStream;
-  (globalThis as Record<string, unknown>).TextDecoder =
-    require('node:util').TextDecoder;
+  Object.assign(globalThis, {
+    DecompressionStream,
+    ReadableStream,
+    TextDecoder,
+  });
 });
 
 const cm = (

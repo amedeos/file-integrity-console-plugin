@@ -33,6 +33,13 @@ export default tseslint.config(
       ...react.configs.recommended.rules,
       ...react.configs['jsx-runtime'].rules,
       '@typescript-eslint/consistent-type-imports': 'error',
+      // A number in a template literal has one obvious rendering and no
+      // ambiguity to guard against; the default forbids it and buys nothing
+      // but String() calls around counts and byte sizes.
+      '@typescript-eslint/restrict-template-expressions': [
+        'error',
+        { allowNumber: true },
+      ],
     },
     languageOptions: {
       globals: globals.browser,
@@ -68,6 +75,11 @@ export default tseslint.config(
       ...jest.configs['flat/recommended'].rules,
       ...jest.configs['flat/style'].rules,
       ...testingLibrary.configs['flat/react'].rules,
+      // In a test, `!` asserts something the test is entitled to assume. If the
+      // assumption is wrong the test fails immediately and points at the line,
+      // which is the whole job of a test; the defensive alternative only adds
+      // noise between the reader and the assertion.
+      '@typescript-eslint/no-non-null-assertion': 'off',
     },
   },
   // The template's Playwright block is gone with the integration-tests it
