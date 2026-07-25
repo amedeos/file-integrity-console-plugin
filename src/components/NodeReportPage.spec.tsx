@@ -5,7 +5,9 @@ import NodeReportPage from './NodeReportPage';
 import type { FileIntegrity, FileIntegrityNodeStatus } from '../types';
 import type { ResultConfigMap } from '../lib/decode';
 
-jest.mock('react-router', () => ({
+// Mocks the shim, not the package: which router package supplies these differs
+// by console generation, and the component only ever sees the shim.
+jest.mock('../lib/router', () => ({
   useParams: () => ({ fiName: 'example-fileintegrity', nodeName: 'node-0' }),
   Link: ({ children }: React.PropsWithChildren) => <a>{children}</a>,
 }));
