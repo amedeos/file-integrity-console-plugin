@@ -77,6 +77,32 @@ jobs:
           console.log(`${en.length} keys, en and it agree`);
           EOF
 
+      # A git tag names the released image, and the plugin manifest carries a
+      # version of its own that the console displays. If these drift, a release
+      # tagged v0.1.1 ships an image announcing itself as something else.
+      - name: Versions agree
+        run: |
+          node - <<'EOF'
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const chart = fs.readFileSync(
+            'charts/file-integrity-console-plugin/Chart.yaml',
+            'utf8',
+          );
+          const appVersion = /^appVersion:\s*"?([^"\s]+)"?\s*$/m.exec(chart)?.[1];
+          const found = {
+            'package.json version': pkg.version,
+            'consolePlugin.version': pkg.consolePlugin.version,
+            'Chart.yaml appVersion': appVersion,
+          };
+          const distinct = [...new Set(Object.values(found))];
+          if (distinct.length !== 1 || distinct[0] === undefined) {
+            console.error('Versions disagree:', found);
+            process.exit(1);
+          }
+          console.log(`version ${distinct[0]} everywhere`);
+          EOF
+
   backend:
     name: Backend
     runs-on: ubuntu-latest

@@ -134,36 +134,38 @@ Event is also the wrong store for this: the default `event-ttl` is three hours.
 
 ### The image
 
-Released images are built by Quay from this repository, for **linux/amd64
-only**. On another architecture the pod fails with `exec format error`; making
-the image multi-arch is cheap when it is needed, because the web assets are
-architecture-independent and the Go binary is `CGO_ENABLED=0`, so both build
-stages can stay native and only the runtime layer varies.
+Published images live at **`quay.io/asalvati/file-integrity-console-plugin`**,
+built for **linux/amd64 only** — on another architecture the pod fails with
+`exec format error`.
 
-Two things to get right when configuring the Quay build trigger:
+| Tag | Built from | Mutable? |
+| --- | --- | --- |
+| `X.Y.Z` | the git tag `vX.Y.Z` | no — this is what an installation should point at, and the default `IfNotPresent` pull policy is correct for it |
+| `latest` | every push to `main` | yes — needs `plugin.imagePullPolicy=Always`, or the kubelet reuses the cached layer and a rollout reports success while running the previous binary |
 
-- **Dockerfile path: `/Containerfile`.** Quay's wizard calls the field
-  "Dockerfile" and offers to detect one; this repository has none, on purpose.
-  Point it at `/Containerfile` explicitly. If a Quay version refuses a path
-  whose basename is not `Dockerfile`, add a `Dockerfile` symlink rather than
-  renaming the file.
-- **Build context: `/`.** The Containerfile copies `backend/`, `src/`,
-  `locales/` and `.yarn/releases`, so it needs the repository root. Nothing
-  outside version control is required — the image builds from a clean checkout.
-
-To build it yourself instead:
+**Building your own.** Only the maintainer can push to the repository above, and
+an air-gapped or otherwise restricted cluster will need its own copy anyway.
+Build from a clean checkout and push wherever your cluster can pull from:
 
 ```sh
-podman build -f Containerfile -t quay.io/<org>/file-integrity-console-plugin:0.1.0 .
-podman push quay.io/<org>/file-integrity-console-plugin:0.1.0
+podman build -f Containerfile -t <your-registry>/<your-namespace>/file-integrity-console-plugin:0.1.0 .
+podman push <your-registry>/<your-namespace>/file-integrity-console-plugin:0.1.0
 ```
+
+Nothing outside version control is needed, and no build arguments: the image
+builds from the repository as it is. Then pass your own reference to
+`plugin.image` below.
+
+Multi-arch is cheap to add when someone needs it: the web assets are
+architecture-independent and the Go binary is `CGO_ENABLED=0`, so both build
+stages stay native and only the runtime layer varies — no emulation.
 
 ### Install the chart
 
 ```sh
 helm install file-integrity-console-plugin charts/file-integrity-console-plugin \
   --namespace openshift-file-integrity \
-  --set plugin.image=quay.io/<org>/file-integrity-console-plugin:0.1.0
+  --set plugin.image=quay.io/asalvati/file-integrity-console-plugin:0.1.0
 ```
 
 To also enable reading files from nodes:
@@ -249,6 +251,45 @@ Note that `yarn lint` passes `--fix`, so it repairs rather than reports. CI runs
 `podman build` of the Containerfile and a set of `helm template` assertions —
 including one that renders the chart with its *defaults*, which is the case that
 once shipped `--max-file-bytes=1.048576e+06` to a cluster.
+
+See [AGENTS.md](AGENTS.md) for the conventions and the invariants that a change
+must not break silently.
+
+## Releasing
+
+Only useful to whoever owns `quay.io/asalvati`; everyone else builds their own
+image as described under [The image](#the-image).
+
+Images are built by a Quay build trigger on this repository rather than by CI,
+so nothing here holds registry credentials. Two things to get right when
+configuring that trigger:
+
+- **Dockerfile path: `/Containerfile`.** Quay's wizard calls the field
+  "Dockerfile" and offers to detect one; this repository has none, on purpose.
+  Point it at `/Containerfile` explicitly. If a Quay version refuses a path
+  whose basename is not `Dockerfile`, add a `Dockerfile` symlink rather than
+  renaming the file.
+- **Build context: `/`.** The Containerfile copies `backend/`, `src/`,
+  `locales/` and `.yarn/releases`, so it needs the repository root.
+
+To cut a release, the version has to agree everywhere it is written down,
+because the git tag is what names the image and the plugin manifest is what the
+console reads:
+
+- `version` and `consolePlugin.version` in `package.json`
+- `appVersion` in `charts/file-integrity-console-plugin/Chart.yaml`
+- and `version` in the same file, which is the chart's own version — free to
+  move independently in principle, kept in step here because the chart ships
+  nothing but this plugin
+
+CI fails if the first three disagree. So:
+
+```sh
+# bump all four, commit, then
+git tag v0.1.1 && git push origin v0.1.1
+```
+
+Quay builds the tag into `quay.io/asalvati/file-integrity-console-plugin:0.1.1`.
 
 ## Licence
 
