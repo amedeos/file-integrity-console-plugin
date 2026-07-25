@@ -14,3 +14,13 @@ import type * as SDK from '@openshift-console/dynamic-plugin-sdk';
 export const ListPageHeader: typeof SDK.ListPageHeader = ({ title }) => <h1>{title}</h1>;
 
 export const DocumentTitle: typeof SDK.DocumentTitle = () => null;
+
+export const Timestamp: typeof SDK.Timestamp = ({ timestamp }) => (
+  <span>{String(timestamp)}</span>
+);
+
+export const k8sPatch = jest.fn(() => Promise.resolve({}));
+
+export const k8sGet = jest.fn(() => Promise.resolve({}));
+
+export const useK8sWatchResource = jest.fn(() => [[], true, undefined]);

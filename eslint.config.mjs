@@ -5,7 +5,6 @@ import prettier from 'eslint-plugin-prettier/recommended';
 import reactHooks from 'eslint-plugin-react-hooks';
 import importX from 'eslint-plugin-import-x';
 import { createTypeScriptImportResolver } from 'eslint-import-resolver-typescript';
-import playwright from 'eslint-plugin-playwright';
 import jest from 'eslint-plugin-jest';
 import testingLibrary from 'eslint-plugin-testing-library';
 import globals from 'globals';
@@ -71,15 +70,9 @@ export default tseslint.config(
       ...testingLibrary.configs['flat/react'].rules,
     },
   },
-  {
-    ...playwright.configs['flat/recommended'],
-    files: ['integration-tests/**/*.ts'],
-    ...tseslint.configs.disableTypeChecked,
-    rules: {
-      ...playwright.configs['flat/recommended'].rules,
-      ...tseslint.configs.disableTypeChecked.rules,
-      'no-console': 'off',
-    },
-  },
+  // The template's Playwright block is gone with the integration-tests it
+  // linted: it imported eslint-plugin-playwright, which is not a dependency
+  // here, so `yarn lint` could not start at all. Restore both together if
+  // integration tests come back.
   prettier,
 );
