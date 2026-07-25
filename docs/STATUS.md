@@ -151,6 +151,11 @@ refusal is **clean** — no menu entry, no error in the user's face, console oth
     JavaScript and the binary is `CGO_ENABLED=0`, so both build stages stay native with no
     emulation.
 
+    Two tag streams: a push to `main` produces `latest` (mutable — install it with
+    `plugin.imagePullPolicy=Always`), a git tag `vX.Y.Z` produces `X.Y.Z` (immutable — what an
+    installation should point at). Since the git tag names the image, CI now fails when
+    `package.json` `version`, `consolePlugin.version` and the chart's `appVersion` disagree.
+
     Two traps already verified in the field, both in the README: with a mutable tag such as
     `:latest`, `plugin.imagePullPolicy=Always` is required, otherwise the kubelet reuses the
     cached image and the rollout reports success while running the previous binary; and after

@@ -151,11 +151,18 @@ Two things to get right when configuring the Quay build trigger:
   `locales/` and `.yarn/releases`, so it needs the repository root. Nothing
   outside version control is required — the image builds from a clean checkout.
 
+Two streams of tags come out of that trigger:
+
+| Source | Image tag | Mutable? |
+| --- | --- | --- |
+| a push to `main` | `latest` | yes — install it with `plugin.imagePullPolicy=Always`, or the kubelet reuses the cached layer and a rollout reports success while running the previous binary |
+| a git tag `vX.Y.Z` | `X.Y.Z` | no — the default `IfNotPresent` is correct, and this is what an installation should point at |
+
 To build it yourself instead:
 
 ```sh
-podman build -f Containerfile -t quay.io/<org>/file-integrity-console-plugin:0.1.0 .
-podman push quay.io/<org>/file-integrity-console-plugin:0.1.0
+podman build -f Containerfile -t quay.io/asalvati/file-integrity-console-plugin:0.1.0 .
+podman push quay.io/asalvati/file-integrity-console-plugin:0.1.0
 ```
 
 ### Install the chart
@@ -163,7 +170,7 @@ podman push quay.io/<org>/file-integrity-console-plugin:0.1.0
 ```sh
 helm install file-integrity-console-plugin charts/file-integrity-console-plugin \
   --namespace openshift-file-integrity \
-  --set plugin.image=quay.io/<org>/file-integrity-console-plugin:0.1.0
+  --set plugin.image=quay.io/asalvati/file-integrity-console-plugin:0.1.0
 ```
 
 To also enable reading files from nodes:
@@ -201,6 +208,26 @@ Note also that `plugin.imagePullPolicy` defaults to `IfNotPresent`, which is
 right for an immutable tag and wrong for a mutable one. Deploying `:latest`
 twice without `Always` leaves the kubelet reusing the cached image, and the
 rollout reports success while running the previous binary.
+
+### Cutting a release
+
+The version lives in four places and they have to agree, because the git tag is
+what names the image and the plugin manifest is what the console reads:
+
+- `version` and `consolePlugin.version` in `package.json`
+- `appVersion` in `charts/file-integrity-console-plugin/Chart.yaml`
+- and `version` in the same file, which is the chart's own version — free to
+  move independently in principle, kept in step here because the chart ships
+  nothing but this plugin
+
+CI fails if the first three disagree. So:
+
+```sh
+# bump all four, commit, then
+git tag v0.1.1 && git push origin v0.1.1
+```
+
+Quay builds the tag into `quay.io/asalvati/file-integrity-console-plugin:0.1.1`.
 
 ### Values worth knowing
 
