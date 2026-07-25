@@ -1,5 +1,8 @@
 # File Integrity Console Plugin
 
+[![CI](https://github.com/amedeos/file-integrity-console-plugin/actions/workflows/ci.yml/badge.svg)](https://github.com/amedeos/file-integrity-console-plugin/actions/workflows/ci.yml)
+[![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](LICENSE)
+
 An OpenShift console plugin for the [File Integrity Operator][fio]: a node-by-node
 view of AIDE scan results, with the failing files parsed out of the operator's
 result ConfigMaps instead of read as raw log text.
