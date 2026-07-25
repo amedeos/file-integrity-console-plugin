@@ -1,0 +1,58 @@
+Start timestamp: 2026-07-25 12:46:41 +0000 (AIDE 0.16)
+AIDE found differences between database and filesystem!!
+
+Summary:
+  Total number of entries:	40932
+  Added entries:		1
+  Removed entries:		1
+  Changed entries:		1
+
+---------------------------------------------------
+Added entries:
+---------------------------------------------------
+
+f++++++++++++++++: /hostroot/etc/fio-demo-added.conf
+
+---------------------------------------------------
+Removed entries:
+---------------------------------------------------
+
+f----------------: /hostroot/etc/fio-demo-removed.conf
+
+---------------------------------------------------
+Changed entries:
+---------------------------------------------------
+
+f   p..    .CA.. : /hostroot/etc/fio-demo-changed.conf
+
+---------------------------------------------------
+Detailed information about changes:
+---------------------------------------------------
+
+File: /hostroot/etc/fio-demo-changed.conf
+  Perm     : -rw-r--r--                       | -rw-------
+  SHA512   : sqW/zvjlIR/0Zf4REiiANHHp5AFNgil+ | OEt8EddDVc1gTM/B8/niWSswRfkvo0VX
+             OYKwTbP9B8x1MqU8dDmVcvL37NK95Ar4 | szBAM/ihMVFUXl01yjYslPMnRji8VG4I
+             dks9oSoqFDZYsFgGQp2x6w==         | FvfRJQIcFVGOgpixBEEylA==
+  ACL      : A: user::rw-                     | A: user::rw-
+             A: group::r--                    | A: group::---
+             A: other::r--                    | A: other::---
+
+
+---------------------------------------------------
+The attributes of the (uncompressed) database(s):
+---------------------------------------------------
+
+/hostroot/etc/kubernetes/aide.db.gz
+  MD5      : 84MpvJvFqLjQdvraJiMTIQ==
+  SHA1     : Y8DgxP9/Z4BiqWhOk+jxL7jJ/mQ=
+  RMD160   : QHBQLBop7dUMmKINH5ynWg+ela4=
+  TIGER    : 9EhxNEYL9dvdCshCM5IYWxrEjmWjODOQ
+  SHA256   : lm8vhhMDTWL5YlXalwqdfDW0hwT5D0mn
+             IXuRrre8i6k=
+  SHA512   : s4+wx0jYzV6lCwA1LuZ0bHCAiKGY3Wy5
+             UDfUIky/BlGPOy+Zm3qS/pDewtGMCAMu
+             I+kSNHMcqf4lxmMOytqSHA==
+
+
+End timestamp: 2026-07-25 12:47:15 +0000 (run time: 0m 34s)

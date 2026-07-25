@@ -1,0 +1,55 @@
+Start timestamp: 2026-07-25 09:12:03 +0000 (AIDE 0.18)
+AIDE found differences between database and filesystem!!
+
+Summary:
+  Total number of entries:	41221
+  Added entries:		2
+  Removed entries:		1
+  Changed entries:		2
+
+---------------------------------------------------
+Added entries:
+---------------------------------------------------
+
+f++++++++++++++++++: /hostroot/etc/cron.d/rogue
+d++++++++++++++++++: /hostroot/opt/staging
+
+---------------------------------------------------
+Removed entries:
+---------------------------------------------------
+
+f------------------: /hostroot/etc/motd.d/welcome
+
+---------------------------------------------------
+Changed entries:
+---------------------------------------------------
+
+f   ...    .C...  : /hostroot/etc/sysctl.conf
+d   ...    mc...  : /hostroot/etc/pki/tls
+
+---------------------------------------------------
+Detailed information about changes:
+---------------------------------------------------
+
+File: /hostroot/etc/sysctl.conf
+  Size     : 449                              , 512
+  Mtime    : 2026-07-01 03:11:00 +0000        , 2026-07-25 09:05:41 +0000
+  SHA512   : Bq1RZTQ0dGhpc2lzYXRlc3RoYXNodmFs , WGZ2YWx1ZXRoYXRkaWZmZXJzZnJvbXRo
+             dWV0aGF0d3JhcHNhY3Jvc3NsaW5lcw== , ZW9yaWdpbmFsb25lYW5kd3JhcHM=
+
+Directory: /hostroot/etc/pki/tls
+  Mtime    : 2026-07-01 03:11:00 +0000        , 2026-07-25 09:05:41 +0000
+  Ctime    : 2026-07-01 03:11:00 +0000        , 2026-07-25 09:05:41 +0000
+
+
+---------------------------------------------------
+The attributes of the (uncompressed) database(s):
+---------------------------------------------------
+
+/hostroot/etc/kubernetes/aide.db.gz
+  MD5      : ZmFrZW1kNXZhbHVlZm9ydGVzdA==
+  SHA512   : ZmFrZXNoYTUxMnZhbHVlZm9ydGVzdGlu
+             Z3B1cnBvc2Vzb25seW5vdHJlYWw=
+
+
+End timestamp: 2026-07-25 09:12:44 +0000 (run time: 0m 41s)
