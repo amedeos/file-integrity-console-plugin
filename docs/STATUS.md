@@ -85,9 +85,23 @@ Two bugs the cluster found, both fixed:
 
 - `--max-file-bytes` rendered as `1.048576e+06` (Helm parses YAML numbers as float64) and the
   binary rejected the flag → `| int64` in the template.
-- the executor's fallback predicate returned `true` for any error, so every failed read re-ran
-  the command over SPDY and its stderr appeared twice → now uses
+- the executor's fallback predicate returned `true` for **any** error, so the command was re-run
+  over SPDY and its output appended to the same buffer → now uses
   `httpstream.IsUpgradeFailure`/`IsHTTPSProxyError`, the same conditions as kubectl.
+
+  This was first written up as "the stderr appeared twice", which understated it. When the
+  WebSocket attempt failed *after* streaming its output, a **successful** read returned 200 with
+  the file's contents **duplicated**, and a `sha256` computed over the doubled bytes. Confirmed
+  on 25 July by comparing a read taken before the fix against the file on the node: the node's
+  `/etc/fio-demo-changed.conf` is 32 bytes with an mtime predating both reads, the pre-fix
+  response was 64 bytes, and the two `sha256` values match the real and the doubled content
+  exactly. Nothing had changed on the node — the endpoint was misreporting it.
+
+  For a file integrity tool this is the worst class of defect there is: it showed content that
+  had never been on disk and certified it with a hash. It also passes silently, because a
+  doubled file still looks plausible. Worth remembering when touching `newExecutor` in
+  `backend/internal/nodefile`: a fallback that re-runs a command must not share the output
+  buffer with the attempt it is replacing.
 
 ## CI and code quality (25 July 2026)
 
