@@ -12,6 +12,19 @@ visible only on clusters where the `FileIntegrity` CRD exists.
 
 [fio]: https://github.com/openshift/file-integrity-operator
 
+## Compatibility
+
+Built against the OpenShift **4.22** console SDK. The plugin manifest declares
+`@console/pluginAPI: >=4.22.0-0`, so an older console skips it outright: no menu
+entry, an entry in the console pod log, and nothing else broken.
+
+That gate is deliberate and should not be widened on its own. The UI targets
+PatternFly 6 and takes its router context from the console, both of which differ
+across console generations — lowering the bound would replace a clean refusal
+with a page that renders unstyled and reads its route parameters as empty.
+Support for earlier generations, when it comes, belongs on its own branch built
+against that generation's SDK.
+
 ## What it does
 
 - **Overview** — every `FileIntegrityNodeStatus` in the cluster, its phase and

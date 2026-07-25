@@ -108,6 +108,29 @@ Due bug trovati dal cluster e corretti:
   backend resti senza ruoli), immagine (`podman build` + smoke test del binario). Tutti i
   controlli sono stati provati a mano qui, tranne il job dell'immagine: manca podman.
 
+## Compatibilità con console più vecchie — deciso, non ancora fatto
+
+Obiettivo dichiarato dall'utente: provare anche su **OCP 4.16 e 4.18**. Strada scelta: **un
+branch per generazione di console** (come fanno `odf-console` e `netobserv`), `main` su 4.22 e
+un `release-4.x` compilato contro l'SDK di quella generazione. **Da affrontare dopo** aver
+chiuso il 4.22.
+
+Perché non basta provare e vedere: il manifest dichiara `@console/pluginAPI: >=4.22.0-0`, quindi
+su 4.16/4.18 il plugin non viene proprio caricato. Abbassare quel vincolo è una riga e sarebbe
+il modo peggiore di procedere, perché sotto ci sono tre incompatibilità vere:
+
+- **PatternFly 6** qui, 5 lì: markup `pf-v6-*` servito a un foglio di stile `pf-v5` dà una
+  pagina strutturalmente giusta e visivamente rotta.
+- **react-router 7** qui, v5 lì. È il punto insidioso: le rotte le registra la console e
+  `useParams()` legge il contesto del *suo* router. Con una copia diversa del pacchetto quel
+  contesto non esiste, `useParams()` torna `{}`, `nodeName` diventa stringa vuota e la pagina
+  dice "nodo non trovato" senza alcun errore — sembra un bug di logica ed è di packaging.
+- **React 18** qui; da verificare cosa fornisce la console 4.16.
+
+Primo passo utile in ogni caso, indipendente dalla strada: installare su una 4.16/4.18 e
+verificare che il rifiuto sia **pulito** — nessuna voce di menu, nessun errore in faccia
+all'utente, console che funziona normalmente.
+
 ## Da fare
 
 9. **Verifica della UI nel browser** — fatta in parte: l'utente ha confermato che il toggle del
