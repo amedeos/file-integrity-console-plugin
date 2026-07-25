@@ -45,6 +45,16 @@ riderivare) e la procedura di verifica. Leggerlo prima di riprendere.
 - **Flag `--extra-deny-list-file` aggiunto** al backend, così i values possono *aggiungere*
   pattern alla deny-list senza ricopiare i default (una copia dei default invecchia e finisce
   per permettere ciò che un default più recente negherebbe).
+- **Niente `Event` k8s per l'audit** (punto 5.8 del piano): resta il solo log strutturato.
+  Crearlo col token del chiamante fallisce proprio per gli utenti che contano — chi non ha
+  `pods/exec` di solito non ha nemmeno `create events`, e una richiesta senza token non ha
+  utente; crearlo col SA del backend gli darebbe l'unico permesso di cui altrimenti non ha
+  bisogno, e siccome il controllo della deny-list precede l'autenticazione aprirebbe la
+  scrittura a chiamanti anonimi. Verificato sul lab che il registro autorevole esiste già:
+  l'audit log del kube-apiserver registra il `pods/exec` con utente, pod, **comando completo
+  (quindi il path)** e decisione RBAC. Gli `Event` su questo cluster hanno `event-ttl: 3h`,
+  quindi come registro d'audit non servirebbero comunque. Il README documenta entrambe le
+  fonti e il comando per estrarle.
 
 ## Verificato sul lab (25 luglio 2026)
 
@@ -85,12 +95,7 @@ Due bug trovati dal cluster e corretti:
    aperta: overview, click sul nodo, report parsato con filtri, modale del contenuto, re-init,
    e il gating quando manca il CRD `FileIntegrity` (che sul lab non si può provare senza
    disinstallare l'operatore).
-10. **Audit come Event k8s** — il punto 5.8 del piano chiedeva, oltre al log strutturato
-    (fatto), anche un `Event` sul `FileIntegrityNodeStatus` del nodo. Non implementato:
-    creandolo con le credenziali dell'utente servirebbe `create events` nel namespace, che un
-    utente con solo `view` non ha, e la lettura fallirebbe per un motivo scollegato. Da decidere
-    se crearlo con il SA del backend (che però oggi non ha alcun ruolo) o lasciare solo il log.
-11. **Pubblicazione su `quay.io/asalvati`** — l'utente fa build e push dell'immagine lì; poi il
+10. **Pubblicazione su `quay.io/asalvati`** — l'utente fa build e push dell'immagine lì; poi il
     chart va installato con quel `plugin.image`. Nota: con un tag mutabile come `:latest` serve
     `plugin.imagePullPolicy=Always`, altrimenti il kubelet riusa l'immagine in cache e un
     rollout riparte con il binario vecchio (successo apparente).
