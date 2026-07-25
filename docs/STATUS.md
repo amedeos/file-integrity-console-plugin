@@ -212,6 +212,40 @@ call older consoles implement. It was already planned as a dependency pin; it is
     cached image and the rollout reports success while running the previous binary; and after
     every new build the console has to be restarted, since it caches the plugin manifest.
 
+## Where to pick up — 25 July 2026, end of day
+
+Everything below is on `main`; no work is uncommitted and no branch holds anything `main` does
+not already have.
+
+**Done today, after the 4.22 work:** the console-versioned APIs were routed through
+`src/lib/k8s.ts`, `src/lib/router.ts` and `src/lib/styles.ts`; `AGENTS.md` grew the
+multi-generation section and the shim invariant; CI grew a `hygiene` job that fails on a NUL byte
+in a tracked file; and the gate's behaviour was observed on a real 4.16 console rather than
+predicted (see the section above).
+
+**Decided:** three branches, one per console generation, named after the **floor** of the range —
+`release-4.16` covers 4.16–4.18, `release-4.19` covers 4.19–4.21, `main` covers 4.22+. The floor
+is deliberate: ranges grow upward, so the name stays true as releases are added, and someone on
+4.18 who guesses wrong lands on `main` and gets a clean refusal rather than concluding their
+version is unsupported. The README needs a table mapping console version to image tag.
+
+**Next step, and the first thing that can fail:** `release-4.16` exists as a branch pointing at
+`main` with no commits of its own. The next move is the dependency pins — SDK 1.2.0 with
+**`ConsoleRemotePlugin` 1.1.0** (mandatory, not cosmetic: the 4.22 entry-registration contract is
+what fails on an older console), PatternFly `^5.1.1`, React 17, `react-router-dom` 5.3,
+`@testing-library/react` 12.x, webpack pinned to exactly `5.75.0`, and the closed `pluginAPI`
+range. If that set does not resolve, nothing after it matters.
+
+Then the PatternFly 5 port: `Content` → `TextContent`/`Text`, the Modal composition,
+`EmptyState` → `EmptyStateHeader`, and `src/lib/styles.ts` respelled. And the version carries the
+generation: `0.1.0-ocp4.16`.
+
+**Still standing on the lab cluster**, put there to get here and not yet removed: the internal
+registry re-enabled with `emptyDir`, the `file-integrity-console-plugin` BuildConfig and
+ImageStream, the `fio-curl` pod and the `fio-viewer` ServiceAccount with its RoleBinding. The
+plugin itself now runs from `quay.io/asalvati/file-integrity-console-plugin:latest`, so the
+in-cluster build path is no longer needed.
+
 ## Environment notes
 
 - The Go toolchain is **not preinstalled** and `/tmp` is a 1 GB tmpfs, too small for the module
