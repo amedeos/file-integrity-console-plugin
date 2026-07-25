@@ -151,16 +151,8 @@ func (r *Reader) Read(
 			TTY:       false,
 		}, scheme.ParameterCodec)
 
-	exec, err := newExecutor(user, req.URL())
+	stdout, stderr, err := stream(ctx, user, req.URL())
 	if err != nil {
-		return nil, fmt.Errorf("preparing exec: %w", err)
-	}
-
-	var stdout, stderr bytes.Buffer
-	if err := exec.StreamWithContext(ctx, remotecommand.StreamOptions{
-		Stdout: &stdout,
-		Stderr: &stderr,
-	}); err != nil {
 		return nil, &ErrRead{Path: nodePath, Stderr: stderr.String(), Err: err}
 	}
 	// `head` exits 0 but writes to stderr when the file is unreadable, which
@@ -184,24 +176,52 @@ func (r *Reader) Read(
 	}, nil
 }
 
-// newExecutor prefers the WebSocket transport and falls back to SPDY, which is
-// what remotecommand's fallback executor does; both are needed because older
-// API servers do not speak the WebSocket protocol.
+// stream runs the command, preferring the WebSocket transport and falling back
+// to SPDY only when the stream could not be established. Both are needed
+// because older API servers do not speak the WebSocket protocol.
 //
-// The predicate must only match failures to *establish* the stream. Falling
-// back on any error re-runs the command whenever it merely exits non-zero — so
-// a missing file is read twice and its stderr is reported twice. These are the
-// same conditions kubectl falls back on.
-func newExecutor(user *authz.UserClient, u *url.URL) (remotecommand.Executor, error) {
+// Deliberately not remotecommand.NewFallbackExecutor: that hands the second
+// attempt the same StreamOptions, and therefore the same buffers, so whatever
+// the first attempt already wrote stays in front of the retry's output. That is
+// how a 32-byte file was once returned twice over, hashed as though the
+// duplicate were what sat on disk — a file integrity tool reporting content
+// that had never existed. Each attempt here writes into buffers of its own, and
+// only the surviving attempt's output is ever read.
+//
+// The fallback is also narrow on purpose: it covers failures to *establish* the
+// stream, the same conditions kubectl falls back on. A command that merely
+// exits non-zero must not be run a second time.
+func stream(
+	ctx context.Context,
+	user *authz.UserClient,
+	u *url.URL,
+) (*bytes.Buffer, *bytes.Buffer, error) {
+	if ws, err := remotecommand.NewWebSocketExecutor(
+		user.Config, "GET", u.String(),
+	); err == nil {
+		var stdout, stderr bytes.Buffer
+		err := ws.StreamWithContext(ctx, remotecommand.StreamOptions{
+			Stdout: &stdout,
+			Stderr: &stderr,
+		})
+		if err == nil {
+			return &stdout, &stderr, nil
+		}
+		if !httpstream.IsUpgradeFailure(err) && !httpstream.IsHTTPSProxyError(err) {
+			// The command ran and failed on its own terms. Its output is the
+			// answer; retrying would only run it twice.
+			return &stdout, &stderr, err
+		}
+	}
+
 	spdy, err := remotecommand.NewSPDYExecutor(user.Config, "POST", u)
 	if err != nil {
-		return nil, err
+		return &bytes.Buffer{}, &bytes.Buffer{}, fmt.Errorf("preparing exec: %w", err)
 	}
-	ws, err := remotecommand.NewWebSocketExecutor(user.Config, "GET", u.String())
-	if err != nil {
-		return spdy, nil
-	}
-	return remotecommand.NewFallbackExecutor(ws, spdy, func(err error) bool {
-		return httpstream.IsUpgradeFailure(err) || httpstream.IsHTTPSProxyError(err)
+	var stdout, stderr bytes.Buffer
+	err = spdy.StreamWithContext(ctx, remotecommand.StreamOptions{
+		Stdout: &stdout,
+		Stderr: &stderr,
 	})
+	return &stdout, &stderr, err
 }
