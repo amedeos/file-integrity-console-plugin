@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { useTranslation } from 'react-i18next';
+import type { MenuToggleElement } from '@patternfly/react-core';
 import {
   Alert,
   Button,
@@ -8,7 +9,6 @@ import {
   DropdownItem,
   DropdownList,
   MenuToggle,
-  MenuToggleElement,
   Modal,
   ModalBody,
   ModalFooter,
@@ -17,14 +17,15 @@ import {
 import { k8sPatch } from '@openshift-console/dynamic-plugin-sdk';
 import { ANNOTATIONS, I18N_NS } from '../constants';
 import { FileIntegrityModel } from '../models';
-import { FileIntegrity } from '../types';
+import type { FileIntegrity } from '../types';
 import { addNodeToReinit, setAnnotationPatch } from '../lib/reinit';
+import { errorMessage } from '../lib/errors';
 
-type ConfirmState = {
+interface ConfirmState {
   title: string;
   body: React.ReactNode;
   run: () => Promise<unknown>;
-};
+}
 
 /**
  * Shared confirmation modal. Re-initialising discards the current AIDE baseline
@@ -39,25 +40,37 @@ const ReinitConfirmModal: React.FC<{
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string>();
 
-  React.useEffect(() => {
+  // Reset when the modal is opened for a different action. Done during render
+  // rather than in an effect so the previous attempt's error cannot flash under
+  // the new confirmation text.
+  const [stateShown, setStateShown] = React.useState(state);
+  if (state !== stateShown) {
+    setStateShown(state);
     setError(undefined);
     setSubmitting(false);
-  }, [state]);
+  }
 
   if (!state) {
     return null;
   }
 
-  const onConfirm = async () => {
+  const confirm = async () => {
     setSubmitting(true);
     setError(undefined);
     try {
       await state.run();
       onClose();
     } catch (e) {
-      setError((e as Error)?.message ?? String(e));
+      setError(errorMessage(e));
       setSubmitting(false);
     }
+  };
+
+  // onClick expects a void return. Handing it an async function makes the
+  // rejection nobody awaits into an unhandled one; confirm() already handles
+  // its own failures, so discarding the promise is the honest thing to say.
+  const onConfirm = () => {
+    void confirm();
   };
 
   return (
@@ -112,7 +125,7 @@ export const ReinitNodeButton: React.FC<{
     return null;
   }
 
-  const onClick = () =>
+  const onClick = () => {
     setConfirm({
       title: t('Re-initialize the baseline for {{node}}?', { node }),
       body: t(
@@ -130,6 +143,7 @@ export const ReinitNodeButton: React.FC<{
         return patchAnnotation(fileIntegrity, ANNOTATIONS.reinit, next);
       },
     });
+  };
 
   return (
     <>
@@ -138,7 +152,9 @@ export const ReinitNodeButton: React.FC<{
       </Button>
       <ReinitConfirmModal
         state={confirm}
-        onClose={() => setConfirm(undefined)}
+        onClose={() => {
+          setConfirm(undefined);
+        }}
       />
     </>
   );
@@ -188,7 +204,12 @@ export const ReinitBulkActions: React.FC<{
         isOpen={open}
         onOpenChange={setOpen}
         toggle={(ref: React.Ref<MenuToggleElement>) => (
-          <MenuToggle ref={ref} onClick={() => setOpen(!open)}>
+          <MenuToggle
+            ref={ref}
+            onClick={() => {
+              setOpen(!open);
+            }}
+          >
             {t('Actions')}
           </MenuToggle>
         )}
@@ -204,7 +225,9 @@ export const ReinitBulkActions: React.FC<{
       </Dropdown>
       <ReinitConfirmModal
         state={confirm}
-        onClose={() => setConfirm(undefined)}
+        onClose={() => {
+          setConfirm(undefined);
+        }}
       />
     </>
   );

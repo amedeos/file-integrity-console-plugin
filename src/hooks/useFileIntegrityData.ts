@@ -9,8 +9,8 @@ import {
   FileIntegrityModel,
   FileIntegrityNodeStatusModel,
 } from '../models';
-import { FileIntegrity, FileIntegrityNodeStatus } from '../types';
-import { ResultConfigMap } from '../lib/decode';
+import type { FileIntegrity, FileIntegrityNodeStatus } from '../types';
+import type { ResultConfigMap } from '../lib/decode';
 
 const fiResource = {
   groupVersionKind: {
@@ -41,11 +41,11 @@ export const useNodeStatuses = (): [
   unknown,
 ] => useK8sWatchResource<FileIntegrityNodeStatus[]>(nodeStatusResource);
 
-type ResultState = {
+interface ResultState {
   configMap?: ResultConfigMap;
   loaded: boolean;
   error?: unknown;
-};
+}
 
 /**
  * Fetches a single result ConfigMap on demand.
@@ -56,17 +56,26 @@ type ResultState = {
  * fails, and the user can reload.
  */
 export const useResultConfigMap = (name?: string): ResultState => {
-  const [state, setState] = React.useState<ResultState>({ loaded: false });
+  // `loaded` starts true when there is nothing to fetch, so a node with no
+  // result ConfigMap renders its "no report" state instead of a spinner that
+  // never resolves.
+  const [state, setState] = React.useState<ResultState>({ loaded: !name });
+  const [fetchedFor, setFetchedFor] = React.useState(name);
+
+  // Cleared during render rather than inside the effect: effects run after the
+  // browser has painted, so resetting there shows one frame of the previous
+  // node's report underneath the new node's heading.
+  if (name !== fetchedFor) {
+    setFetchedFor(name);
+    setState({ loaded: !name });
+  }
 
   React.useEffect(() => {
-    let cancelled = false;
-
     if (!name) {
-      setState({ loaded: true });
       return undefined;
     }
+    let cancelled = false;
 
-    setState({ loaded: false });
     k8sGet<ResultConfigMap>({
       model: ConfigMapModel,
       name,
@@ -77,7 +86,7 @@ export const useResultConfigMap = (name?: string): ResultState => {
           setState({ configMap, loaded: true });
         }
       })
-      .catch((error) => {
+      .catch((error: unknown) => {
         if (!cancelled) {
           setState({ loaded: true, error });
         }

@@ -1,14 +1,14 @@
 import { ANNOTATIONS, INTEGRITY_LOG_CONTENT_KEY } from '../constants';
 
 /** Minimal shape of the result ConfigMap we care about. */
-export type ResultConfigMap = {
+export interface ResultConfigMap {
   metadata?: {
     name?: string;
     namespace?: string;
     annotations?: Record<string, string>;
   };
   data?: Record<string, string>;
-};
+}
 
 /** Decodes a base64 string into bytes without pulling in a Buffer polyfill. */
 const base64ToBytes = (b64: string): Uint8Array<ArrayBuffer> => {
@@ -31,8 +31,9 @@ const base64ToBytes = (b64: string): Uint8Array<ArrayBuffer> => {
  * platform APIs required are ReadableStream and DecompressionStream.
  */
 const gunzip = async (bytes: Uint8Array<ArrayBuffer>): Promise<Uint8Array> => {
-  const DS = (globalThis as { DecompressionStream?: typeof DecompressionStream })
-    .DecompressionStream;
+  const DS = (
+    globalThis as { DecompressionStream?: typeof DecompressionStream }
+  ).DecompressionStream;
   if (!DS) {
     throw new Error('DecompressionStream is unavailable in this environment');
   }
@@ -78,14 +79,14 @@ const gunzip = async (bytes: Uint8Array<ArrayBuffer>): Promise<Uint8Array> => {
 export const extractIntegrityLog = async (
   cm: ResultConfigMap,
 ): Promise<string> => {
-  const content = cm?.data?.[INTEGRITY_LOG_CONTENT_KEY];
+  const content = cm.data?.[INTEGRITY_LOG_CONTENT_KEY];
   if (content === undefined) {
     throw new Error(
-      `ConfigMap ${cm?.metadata?.name ?? '<unknown>'} has no "${INTEGRITY_LOG_CONTENT_KEY}" key`,
+      `ConfigMap ${cm.metadata?.name ?? '<unknown>'} has no "${INTEGRITY_LOG_CONTENT_KEY}" key`,
     );
   }
 
-  const annotations = cm?.metadata?.annotations ?? {};
+  const annotations = cm.metadata?.annotations ?? {};
   if (!(ANNOTATIONS.compressed in annotations)) {
     return content;
   }
@@ -99,7 +100,7 @@ export const readCountAnnotation = (
   cm: ResultConfigMap,
   key: string,
 ): number | undefined => {
-  const raw = cm?.metadata?.annotations?.[key];
+  const raw = cm.metadata?.annotations?.[key];
   if (raw === undefined) {
     return undefined;
   }

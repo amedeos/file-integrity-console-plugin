@@ -21,7 +21,7 @@ import {
 } from '@patternfly/react-core';
 import { Timestamp } from '@openshift-console/dynamic-plugin-sdk';
 import { ANNOTATIONS, I18N_NS } from '../constants';
-import { AideEntry, AideReport } from '../types';
+import type { AideEntry, AideReport } from '../types';
 import {
   useFileIntegrities,
   useNodeStatuses,
@@ -30,6 +30,7 @@ import {
 import { extractIntegrityLog, readCountAnnotation } from '../lib/decode';
 import { countsMatch, parseAideReport } from '../lib/aide-parser';
 import { isNodeHeldOff, isNodeReinitializing } from '../lib/reinit';
+import { errorMessage } from '../lib/errors';
 import { ConditionLabel } from './ConditionLabel';
 import { AideReportTable } from './AideReportTable';
 import { FileContentModal } from './FileContentModal';
@@ -68,20 +69,28 @@ const NodeReportPage: React.FC = () => {
   const [decodeError, setDecodeError] = React.useState<unknown>();
   const [retrieving, setRetrieving] = React.useState<AideEntry>();
 
+  // Cleared during render rather than inside the effect below: effects run
+  // after the browser has painted, so resetting there would show the previous
+  // node's report for a frame.
+  const [parsedFor, setParsedFor] = React.useState(configMap);
+  if (configMap !== parsedFor) {
+    setParsedFor(configMap);
+    setReport(undefined);
+    setDecodeError(undefined);
+  }
+
   React.useEffect(() => {
-    let cancelled = false;
     if (!configMap) {
-      setReport(undefined);
       return undefined;
     }
-    setDecodeError(undefined);
+    let cancelled = false;
     extractIntegrityLog(configMap)
       .then((text) => {
         if (!cancelled) {
           setReport(parseAideReport(text));
         }
       })
-      .catch((e) => {
+      .catch((e: unknown) => {
         if (!cancelled) {
           setDecodeError(e);
         }
@@ -117,9 +126,7 @@ const NodeReportPage: React.FC = () => {
   const [expansionSetFor, setExpansionSetFor] = React.useState(report);
   if (report !== expansionSetFor) {
     setExpansionSetFor(report);
-    setRawExpanded(
-      report?.parseFailed === true || report?.truncated === true,
-    );
+    setRawExpanded(report?.parseFailed === true || report?.truncated === true);
   }
 
   const loaded = fisLoaded && statusesLoaded;
@@ -192,7 +199,11 @@ const NodeReportPage: React.FC = () => {
             )}
           </Alert>
         ) : result?.condition === 'Errored' ? (
-          <Alert variant="warning" isInline title={t('The scan did not complete')}>
+          <Alert
+            variant="warning"
+            isInline
+            title={t('The scan did not complete')}
+          >
             {result.errorMsg ??
               t('The operator reported an error without a message.')}
           </Alert>
@@ -207,18 +218,23 @@ const NodeReportPage: React.FC = () => {
             <Spinner />
           </Bullseye>
         ) : cmError ? (
-          <Alert variant="danger" isInline title={t('Could not load the report')}>
-            {t(
-              'Reading ConfigMap {{name}} failed: {{message}}',
-              {
-                name: result.resultConfigMapName,
-                message: (cmError as Error)?.message ?? String(cmError),
-              },
-            )}
+          <Alert
+            variant="danger"
+            isInline
+            title={t('Could not load the report')}
+          >
+            {t('Reading ConfigMap {{name}} failed: {{message}}', {
+              name: result.resultConfigMapName,
+              message: errorMessage(cmError),
+            })}
           </Alert>
         ) : decodeError ? (
-          <Alert variant="danger" isInline title={t('Could not decode the report')}>
-            {(decodeError as Error)?.message ?? String(decodeError)}
+          <Alert
+            variant="danger"
+            isInline
+            title={t('Could not decode the report')}
+          >
+            {errorMessage(decodeError)}
           </Alert>
         ) : !report ? (
           <Bullseye>
@@ -276,10 +292,7 @@ const NodeReportPage: React.FC = () => {
             {report.entries.length > 0 ? (
               <Card>
                 <CardBody>
-                  <AideReportTable
-                    report={report}
-                    onRetrieve={setRetrieving}
-                  />
+                  <AideReportTable report={report} onRetrieve={setRetrieving} />
                 </CardBody>
               </Card>
             ) : null}
@@ -289,7 +302,9 @@ const NodeReportPage: React.FC = () => {
               toggleTextExpanded={t('Hide raw AIDE report')}
               toggleTextCollapsed={t('Show raw AIDE report')}
               isExpanded={rawExpanded}
-              onToggle={(_event, isExpanded) => setRawExpanded(isExpanded)}
+              onToggle={(_event, isExpanded) => {
+                setRawExpanded(isExpanded);
+              }}
             >
               <RawReport text={report.raw} />
             </ExpandableSection>
@@ -302,7 +317,9 @@ const NodeReportPage: React.FC = () => {
           node={nodeName}
           fileIntegrity={fiName}
           path={retrieving.path}
-          onClose={() => setRetrieving(undefined)}
+          onClose={() => {
+            setRetrieving(undefined);
+          }}
         />
       ) : null}
     </>

@@ -61,7 +61,9 @@ describe('parseAideReport - AIDE 0.16 (real capture)', () => {
   });
 
   it('agrees with the operator-recorded counts', () => {
-    expect(countsMatch(report, { added: 1, changed: 1, removed: 1 })).toBe(true);
+    expect(countsMatch(report, { added: 1, changed: 1, removed: 1 })).toBe(
+      true,
+    );
   });
 
   it('parses the permission change', () => {
@@ -129,7 +131,9 @@ describe('parseAideReport - AIDE 0.18 shape', () => {
       ['changed', '/etc/sysctl.conf'],
       ['changed', '/etc/pki/tls'],
     ]);
-    expect(countsMatch(report, { added: 2, changed: 2, removed: 1 })).toBe(true);
+    expect(countsMatch(report, { added: 2, changed: 2, removed: 1 })).toBe(
+      true,
+    );
   });
 
   it('accepts comma-separated attribute values', () => {

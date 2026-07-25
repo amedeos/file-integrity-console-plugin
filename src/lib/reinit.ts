@@ -1,5 +1,5 @@
 import { ANNOTATIONS } from '../constants';
-import { FileIntegrity } from '../types';
+import type { FileIntegrity } from '../types';
 
 /**
  * Builds the annotation value that asks the operator to rebuild the AIDE
@@ -74,11 +74,11 @@ export const isNodeHeldOff = (
 export const annotationPatchPath = (key: string): string =>
   `/metadata/annotations/${key.replace(/~/g, '~0').replace(/\//g, '~1')}`;
 
-export type JsonPatch = {
+export interface JsonPatch {
   op: 'add' | 'replace' | 'remove';
   path: string;
   value?: string | Record<string, string>;
-};
+}
 
 /**
  * Produces the JSON Patch that sets an annotation, creating the annotations
@@ -91,7 +91,9 @@ export const setAnnotationPatch = (
   value: string,
 ): JsonPatch[] => {
   if (!fi.metadata?.annotations) {
-    return [{ op: 'add', path: '/metadata/annotations', value: { [key]: value } }];
+    return [
+      { op: 'add', path: '/metadata/annotations', value: { [key]: value } },
+    ];
   }
   return [{ op: 'add', path: annotationPatchPath(key), value }];
 };

@@ -1,5 +1,5 @@
 import { TRUNCATED_MARKERS } from '../constants';
-import {
+import type {
   AideAttrChange,
   AideEntry,
   AideEntryKind,
@@ -47,7 +47,7 @@ const SUMMARY_PATTERNS = {
 
 type Section = AideEntryKind | 'detailed' | 'none';
 
-const SECTION_HEADINGS: Array<{ re: RegExp; section: Section }> = [
+const SECTION_HEADINGS: { re: RegExp; section: Section }[] = [
   { re: /^Added (?:entries|files):?$/i, section: 'added' },
   { re: /^Removed (?:entries|files):?$/i, section: 'removed' },
   { re: /^Changed (?:entries|files):?$/i, section: 'changed' },
@@ -82,7 +82,10 @@ const ATTR_LINE = /^ {1,4}(?<name>[A-Za-z][A-Za-z0-9_ -]*?)\s*:\s(?<rest>.*)$/;
 /** Continuation lines are indented past the attribute-name column. */
 const CONTINUATION_LINE = /^ {5,}(?<rest>\S.*)$/;
 
-type SplitValues = { old: string; next?: string };
+interface SplitValues {
+  old: string;
+  next?: string;
+}
 
 /**
  * Splits an attribute's value text into old and new halves.
@@ -157,7 +160,7 @@ export const parseAideReport = (raw: string): AideReport => {
     raw,
   };
 
-  if (!raw || !raw.trim()) {
+  if (!raw.trim()) {
     report.parseFailed = true;
     return report;
   }
@@ -176,22 +179,24 @@ export const parseAideReport = (raw: string): AideReport => {
 };
 
 /** Accumulates the wrapped chunks of one attribute before they are joined. */
-type PendingAttr = {
+interface PendingAttr {
   change: AideAttrChange;
   oldChunks: string[];
   newChunks: string[];
   /** Whether the opening line had a separator at all. */
   split: boolean;
-};
+}
 
 const parseUnsafe = (raw: string, report: AideReport): AideReport => {
   const lines = raw.split('\n');
 
-  const version = /\(AIDE\s+([\d.]+)\)|^AIDE\s+([\d.]+)\s+found differences/m.exec(
-    raw,
-  );
+  const version =
+    /\(AIDE\s+([\d.]+)\)|^AIDE\s+([\d.]+)\s+found differences/m.exec(raw);
   if (version) {
-    report.aideVersion = version[1] ?? version[2];
+    // .at() rather than indexing: the pattern is an alternation, so exactly one
+    // of the two groups is undefined on any match. TypeScript types indexed
+    // access as string and would call the fallback unnecessary; it is not.
+    report.aideVersion = version.at(1) ?? version.at(2);
   }
   const start = /^Start timestamp:\s*(.+?)(?:\s*\(AIDE.*\))?\s*$/m.exec(raw);
   if (start) {
@@ -253,7 +258,8 @@ const parseUnsafe = (raw: string, report: AideReport): AideReport => {
         detailTarget = undefined;
         const trimmed = line.trim();
         section =
-          SECTION_HEADINGS.find(({ re }) => re.test(trimmed))?.section ?? 'none';
+          SECTION_HEADINGS.find(({ re }) => re.test(trimmed))?.section ??
+          'none';
         continue;
       }
     }
@@ -285,7 +291,12 @@ const parseUnsafe = (raw: string, report: AideReport): AideReport => {
         // Detail blocks only ever describe changed entries; if the section
         // pass never saw this path, record it rather than drop it.
         detailTarget = upsert(head.groups.path.trim(), 'changed');
-        if (!detailTarget.fileType) {
+        // Explicit rather than `??=`: an empty fileType means "not known yet"
+        // just as much as an absent one, and both should be filled in here.
+        if (
+          detailTarget.fileType === undefined ||
+          detailTarget.fileType === ''
+        ) {
           detailTarget.fileType = head.groups.type.charAt(0).toLowerCase();
         }
       } else {

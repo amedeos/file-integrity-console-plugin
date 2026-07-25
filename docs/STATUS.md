@@ -89,12 +89,36 @@ Due bug trovati dal cluster e corretti:
   lettura fallita il comando veniva rieseguito su SPDY e lo stderr compariva due volte → ora
   usa `httpstream.IsUpgradeFailure`/`IsHTTPSProxyError`, come kubectl.
 
+## CI e qualità (25 luglio 2026)
+
+- `yarn lint` **non era mai partito**: la config importava `eslint-plugin-playwright`, assente
+  tra le dipendenze. Tolto insieme al blocco che copriva `integration-tests/`, che qui non
+  esiste. Sotto ci stavano 143 violazioni, ora **zero**.
+- `.prettierrc.yml` diceva `printWidth: 100` mentre il codice è scritto a 80: allineato a 80,
+  altrimenti ogni `--fix` riformatta il repo intero.
+- Correzioni sostanziali emerse dal linter: `errorMessage()` in `src/lib/errors.ts` al posto di
+  cinque `(e as Error)?.message ?? String(e)` (che producevano `[object Object]`); narrowing
+  vero della risposta JSON in `backend.ts`; quattro reset di stato spostati da `useEffect` alla
+  fase di render, che evita anche un frame con i dati del nodo precedente.
+- Due scelte di configurazione invece che di codice, documentate in `eslint.config.mjs`:
+  numeri ammessi nei template literal, e `no-non-null-assertion` spento nei soli file `.spec`.
+- `.github/workflows/ci.yml`: frontend (lint senza `--fix`, tsc, test, build, allineamento
+  `en`/`it`), backend (vet, test, build), chart (`helm lint` + `helm template` con assert sui
+  **default**, che è il caso che aveva prodotto `1.048576e+06`, e un assert che il SA del
+  backend resti senza ruoli), immagine (`podman build` + smoke test del binario). Tutti i
+  controlli sono stati provati a mano qui, tranne il job dell'immagine: manca podman.
+
 ## Da fare
 
-9. **Verifica della UI nel browser** — restano i punti del piano che richiedono la console
-   aperta: overview, click sul nodo, report parsato con filtri, modale del contenuto, re-init,
-   e il gating quando manca il CRD `FileIntegrity` (che sul lab non si può provare senza
+9. **Verifica della UI nel browser** — fatta in parte: l'utente ha confermato che il toggle del
+   report grezzo ora funziona. Restano overview, filtri, modale del contenuto, re-init, e il
+   gating quando manca il CRD `FileIntegrity` (che sul lab non si può provare senza
    disinstallare l'operatore).
+
+   Trappola trovata sul campo: la console legge il manifest del plugin **una volta e lo mette
+   in cache**. Dopo una nuova build serve `oc rollout restart deployment/console -n
+   openshift-console`, altrimenti il browser continua a caricare il bundle vecchio comunque lo
+   si ricarichi. Documentata nel README.
 10. **Pubblicazione su `quay.io/asalvati`** — l'utente fa build e push dell'immagine lì; poi il
     chart va installato con quel `plugin.image`. Nota: con un tag mutabile come `:latest` serve
     `plugin.imagePullPolicy=Always`, altrimenti il kubelet riusa l'immagine in cache e un

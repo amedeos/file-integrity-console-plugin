@@ -1,5 +1,5 @@
 import { ANNOTATIONS } from '../constants';
-import { FileIntegrity } from '../types';
+import type { FileIntegrity } from '../types';
 import {
   addNodeToReinit,
   annotationPatchPath,
@@ -11,7 +11,11 @@ import {
 const fi = (annotations?: Record<string, string>): FileIntegrity => ({
   apiVersion: 'fileintegrity.openshift.io/v1alpha1',
   kind: 'FileIntegrity',
-  metadata: { name: 'example', namespace: 'openshift-file-integrity', annotations },
+  metadata: {
+    name: 'example',
+    namespace: 'openshift-file-integrity',
+    annotations,
+  },
 });
 
 describe('addNodeToReinit', () => {
@@ -81,7 +85,11 @@ describe('setAnnotationPatch', () => {
     // `add` into a missing parent object is an error, so the whole map has to
     // be created in one operation.
     expect(setAnnotationPatch(fi(), ANNOTATIONS.reinit, '')).toEqual([
-      { op: 'add', path: '/metadata/annotations', value: { [ANNOTATIONS.reinit]: '' } },
+      {
+        op: 'add',
+        path: '/metadata/annotations',
+        value: { [ANNOTATIONS.reinit]: '' },
+      },
     ]);
   });
 

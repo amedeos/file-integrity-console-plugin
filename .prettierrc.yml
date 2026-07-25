@@ -1,4 +1,6 @@
 arrowParens: always
-printWidth: 100
+# 80, which is how the whole codebase is already written. The template shipped
+# 100, so `prettier --write` reflowed every file it touched.
+printWidth: 80
 singleQuote: true
 trailingComma: all

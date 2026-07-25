@@ -1,5 +1,5 @@
 import { BACKEND_BASE_URL } from '../constants';
-import { NodeFileResponse } from '../types';
+import type { NodeFileResponse } from '../types';
 
 export class BackendError extends Error {
   constructor(
@@ -48,8 +48,16 @@ export const fetchNodeFile = async (
   if (!response.ok) {
     let detail = response.statusText;
     try {
-      const body = await response.json();
-      if (body?.error) {
+      // response.json() is `any`; narrow it before trusting the shape, since
+      // an error body is exactly the case where the server may not have sent
+      // what we expect.
+      const body: unknown = await response.json();
+      if (
+        typeof body === 'object' &&
+        body !== null &&
+        'error' in body &&
+        typeof body.error === 'string'
+      ) {
         detail = body.error;
       }
     } catch {

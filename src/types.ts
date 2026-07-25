@@ -1,4 +1,4 @@
-import { K8sResourceCommon } from '@openshift-console/dynamic-plugin-sdk';
+import type { K8sResourceCommon } from '@openshift-console/dynamic-plugin-sdk';
 
 /** pkg/apis/fileintegrity/v1alpha1: FileIntegrityNodeCondition */
 export type NodeCondition = 'Succeeded' | 'Failed' | 'Errored';
@@ -11,7 +11,7 @@ export type FileIntegrityPhase =
   | 'Error';
 
 /** pkg/apis/fileintegrity/v1alpha1: FileIntegrityScanResult */
-export type ScanResult = {
+export interface ScanResult {
   lastProbeTime?: string;
   condition?: NodeCondition;
   resultConfigMapName?: string;
@@ -20,7 +20,7 @@ export type ScanResult = {
   filesAdded?: number;
   filesChanged?: number;
   filesRemoved?: number;
-};
+}
 
 /**
  * Note the unusual shape: nodeName/results/lastResult live at the *top level*
@@ -53,16 +53,16 @@ export type FileIntegrity = K8sResourceCommon & {
 /** A single file mentioned by an AIDE report. */
 export type AideEntryKind = 'added' | 'changed' | 'removed';
 
-export type AideAttrChange = {
+export interface AideAttrChange {
   /** e.g. "Size", "Mtime", "SHA512", "Perm" */
   name: string;
   /** Value recorded in the AIDE database (absent for added files). */
   old?: string;
   /** Value observed on disk now (absent for removed files). */
   new?: string;
-};
+}
 
-export type AideEntry = {
+export interface AideEntry {
   path: string;
   kind: AideEntryKind;
   /** AIDE's single-letter type marker, e.g. "f" file, "d" directory, "l" link. */
@@ -70,16 +70,16 @@ export type AideEntry = {
   /** AIDE's terse change string, e.g. "f   ...    .C... ." */
   changeFlags?: string;
   attrs: AideAttrChange[];
-};
+}
 
-export type AideSummary = {
+export interface AideSummary {
   added: number;
   changed: number;
   removed: number;
   totalEntries?: number;
-};
+}
 
-export type AideReport = {
+export interface AideReport {
   summary: AideSummary;
   entries: AideEntry[];
   /** AIDE version string, when the report header carries one. */
@@ -97,10 +97,10 @@ export type AideReport = {
    */
   parseFailed: boolean;
   raw: string;
-};
+}
 
 /** Response of GET /api/v1/nodes/{node}/file */
-export type NodeFileResponse = {
+export interface NodeFileResponse {
   node: string;
   path: string;
   /** Bytes actually returned (after any truncation). */
@@ -111,4 +111,4 @@ export type NodeFileResponse = {
   /** True when the content contains NUL bytes. */
   binary: boolean;
   contentBase64: string;
-};
+}
