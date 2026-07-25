@@ -1,168 +1,171 @@
-# Stato dei lavori — aggiornato 25 luglio 2026
+# Status — updated 25 July 2026
 
-Il piano approvato è in [`IMPLEMENTATION-PLAN.md`](./IMPLEMENTATION-PLAN.md): contiene le
-decisioni prese, i fatti verificati sul modello dati del File Integrity Operator (da **non**
-riderivare) e la procedura di verifica. Leggerlo prima di riprendere.
+The approved plan is in [`IMPLEMENTATION-PLAN.md`](./IMPLEMENTATION-PLAN.md): it holds the
+decisions taken, the verified facts about the File Integrity Operator's data model (do **not**
+re-derive them) and the verification procedure. Read it before picking the work back up.
 
-## Fatto
+## Done
 
-1. **File Integrity Operator installato sul cluster di lab** — namespace
-   `openshift-file-integrity`, CR `FileIntegrity` creato, `FileIntegrityNodeStatus` presenti.
-2. **Scaffolding del console plugin** da `console-plugin-template@release-4.22` — `package.json`,
+1. **File Integrity Operator installed on the lab cluster** — namespace
+   `openshift-file-integrity`, a `FileIntegrity` CR created, `FileIntegrityNodeStatus` objects
+   present.
+2. **Console plugin scaffolding** from `console-plugin-template@release-4.22` — `package.json`,
    `webpack.config.ts`, `tsconfig.json`, `console-extensions.json`, jest, yarn 4.
-3. **Parser AIDE e decode** — `src/lib/aide-parser.ts` (grammatiche 0.16 `CONTENTEX` e 0.18
-   `CONTENT_EX`, rilevamento troncamento), `src/lib/decode.ts` (base64 + gzip via
-   `DecompressionStream`). Fixture in `src/lib/__fixtures__/`, spec accanto ai sorgenti.
+3. **AIDE parser and decoding** — `src/lib/aide-parser.ts` (0.16 `CONTENTEX` and 0.18
+   `CONTENT_EX` grammars, truncation detection), `src/lib/decode.ts` (base64 + gzip through
+   `DecompressionStream`). Fixtures in `src/lib/__fixtures__/`, specs next to the sources.
 4. **Frontend** — `NodeStatusOverviewPage`, `NodeReportPage`, `AideReportTable`,
-   `FileContentModal`, `ReinitActions`, `ConditionLabel`, hook `useFileIntegrityData`,
-   `models.ts`, `types.ts`. Locali `en` + `it` allineate (89 chiavi).
-   `yarn test` → 3 suite, 39 test verdi. `yarn build` produce `dist/` con manifest e locali.
-5. **Backend Go** (`backend/`) — `cmd/server/main.go`, `internal/authz` (client k8s dal token
-   utente + `SelfSubjectReview`/`SelfSubjectAccessReview`), `internal/nodefile` (lookup del pod
-   `aide-*` sul nodo + exec nel container `daemon`), `internal/policy` (deny-list path, limiti)
-   con `policy_test.go`. **`go vet`, `go build` e `go test` passano tutti.**
-6. **Helm chart** (`charts/file-integrity-console-plugin/`) — riscritto per il binario Go
-   singolo: via il ConfigMap `nginx.conf`, ConfigMap di policy per le deny-list, Deployment con
-   flag del binario + probe su `/healthz` + `readOnlyRootFilesystem`, Service con
-   `service.beta.openshift.io/serving-cert-secret-name`, `ConsolePlugin` con
-   `proxy[].alias: fio-backend` e `authorization: UserToken`, ServiceAccount **senza alcun
-   ruolo**, Job `post-install`/`post-upgrade` che abilita il plugin e Job `pre-delete` che lo
-   rimuove. `helm lint` e `helm template` puliti nelle varie combinazioni di values.
-7. **Containerfile** multi-stage (asset node → build Go → runtime ubi-minimal, non-root, porta
-   9443) e **`.containerignore`**.
-8. **README** — architettura, modello di sicurezza, install, tabella dei values, dev loop.
+   `FileContentModal`, `ReinitActions`, `ConditionLabel`, the `useFileIntegrityData` hooks,
+   `models.ts`, `types.ts`. `en` and `it` locales aligned (89 keys).
+5. **Go backend** (`backend/`) — `cmd/server/main.go`, `internal/authz` (k8s client from the
+   user's token + `SelfSubjectReview`/`SelfSubjectAccessReview`), `internal/nodefile` (finds the
+   `aide-*` pod on the node and execs into the `daemon` container), `internal/policy` (path deny
+   list, limits) with `policy_test.go`. `go vet`, `go build` and `go test` all pass.
+6. **Helm chart** (`charts/file-integrity-console-plugin/`) — rewritten around the single Go
+   binary: the `nginx.conf` ConfigMap is gone, a policy ConfigMap carries the deny lists, the
+   Deployment passes the binary's flags and has a `/healthz` probe and `readOnlyRootFilesystem`,
+   the Service carries `service.beta.openshift.io/serving-cert-secret-name`, the `ConsolePlugin`
+   declares `proxy[].alias: fio-backend` with `authorization: UserToken`, the ServiceAccount has
+   **no role at all**, a `post-install`/`post-upgrade` Job enables the plugin and a `pre-delete`
+   Job removes it.
+7. **Multi-stage Containerfile** (node assets → Go build → ubi-minimal runtime, non-root, port
+   9443) and **`.containerignore`**.
+8. **README** — architecture, security model, install, values table, dev loop.
+9. **CI** — `.github/workflows/ci.yml`, see below.
 
-## Scostamenti consapevoli dal piano
+## Deliberate departures from the plan
 
-- **Niente ClusterRole `tokenreviews: create`** per il ServiceAccount del backend. Il piano lo
-  prevedeva assumendo `TokenReview`; il codice usa `SelfSubjectReview`, che gira *come l'utente*
-  e non richiede alcun privilegio. L'account resta quindi senza ruoli, il che è più stretto.
-- **Il `proxy` nel `ConsolePlugin` è dichiarato sempre**, anche con
-  `backend.features.fileRetrieve: false`. L'interruttore vero è il flag del backend, che
-  risponde 501 con un messaggio che la modale già traduce in "funzione disabilitata"; togliendo
-  il proxy la console risponderebbe 404 e la UI direbbe "nessun pod di scan sul nodo",
-  cioè il motivo sbagliato.
-- **Flag `--extra-deny-list-file` aggiunto** al backend, così i values possono *aggiungere*
-  pattern alla deny-list senza ricopiare i default (una copia dei default invecchia e finisce
-  per permettere ciò che un default più recente negherebbe).
-- **Niente `Event` k8s per l'audit** (punto 5.8 del piano): resta il solo log strutturato.
-  Crearlo col token del chiamante fallisce proprio per gli utenti che contano — chi non ha
-  `pods/exec` di solito non ha nemmeno `create events`, e una richiesta senza token non ha
-  utente; crearlo col SA del backend gli darebbe l'unico permesso di cui altrimenti non ha
-  bisogno, e siccome il controllo della deny-list precede l'autenticazione aprirebbe la
-  scrittura a chiamanti anonimi. Verificato sul lab che il registro autorevole esiste già:
-  l'audit log del kube-apiserver registra il `pods/exec` con utente, pod, **comando completo
-  (quindi il path)** e decisione RBAC. Gli `Event` su questo cluster hanno `event-ttl: 3h`,
-  quindi come registro d'audit non servirebbero comunque. Il README documenta entrambe le
-  fonti e il comando per estrarle.
+- **No `tokenreviews: create` ClusterRole** for the backend's ServiceAccount. The plan assumed
+  `TokenReview`; the code uses `SelfSubjectReview`, which runs *as the user* and needs no
+  privilege at all. The account therefore has no roles, which is tighter than planned.
+- **The `ConsolePlugin` always declares the `proxy`**, even with
+  `backend.features.fileRetrieve: false`. The real switch is the backend flag, which answers 501
+  with a message the modal already renders as "feature disabled"; dropping the proxy would make
+  the console answer 404, which the UI can only report as "no scan pod on this node" — the wrong
+  reason.
+- **An `--extra-deny-list-file` flag was added** to the backend so that values can *add* patterns
+  to the deny list without copying the defaults (a copy of the defaults goes stale and ends up
+  permitting what a newer default would deny).
+- **No k8s `Event` for the audit trail** (plan item 5.8): the structured log is all there is.
+  Creating the Event with the caller's token fails precisely for the users who matter — someone
+  denied `pods/exec` is usually denied `create events` too, and a request with no token has no
+  user to act as; creating it with the backend's SA would hand that account the only permission
+  it otherwise does not need, and since the deny-list check runs before authentication it would
+  open Event creation to anonymous callers. Verified on the lab that the authoritative record
+  already exists: the kube-apiserver audit log records the `pods/exec` with the user, the pod,
+  the **full command (hence the path)** and the RBAC decision. Events on this cluster have
+  `event-ttl: 3h`, so they would be a poor audit store anyway. The README documents both sources
+  and the command to extract the first.
 
-## Verificato sul lab (25 luglio 2026)
+## Verified on the lab (25 July 2026)
 
-Immagine costruita **in-cluster** con `oc new-build --binary --strategy=docker` +
-`dockerfilePath: Containerfile`, perché in ambiente di sviluppo non c'è podman. Il registry
-interno del cluster era `Removed`: riabilitato con `managementState: Managed` e storage
-`emptyDir` (patch reversibile, immagini non persistenti — va bene per un lab). Dopo la patch
-serve un riavvio dei pod di `openshift-controller-manager`, altrimenti le build falliscono con
-`InvalidOutputReference` perché il controller ha in cache "registry non configurato".
+The image was built **in-cluster** with `oc new-build --binary --strategy=docker` plus
+`dockerfilePath: Containerfile`, because the development environment has no podman. The
+cluster's internal registry was `Removed`: re-enabled with `managementState: Managed` and
+`emptyDir` storage (a reversible patch, images do not persist — fine for a lab). After that
+patch the `openshift-controller-manager` pods need a restart, otherwise builds fail with
+`InvalidOutputReference` because the controller still has "registry not configured" cached.
 
-- Containerfile: tutti e tre gli stage costruiscono, immagine 146 MB, push riuscito.
-- `helm install` + Job di patch: il plugin viene aggiunto a `consoles.operator/cluster`
-  **preservando** gli altri già presenti (`monitoring-plugin`, `odf-console`, …).
-- La console registra il plugin e monta la rotta proxy
-  `/api/proxy/plugin/file-integrity-console-plugin/fio-backend/`, cioè esattamente l'URL che il
-  frontend costruisce da `BACKEND_BASE_URL`.
-- Asset statici serviti in TLS dal binario Go, `plugin-manifest.json` con `cache-control:
-  no-cache`, locali `en`/`it` raggiungibili, `/healthz` 200.
-- Retrieve, tutti e otto i casi provati contro il Service:
-  happy path 200 con contenuto reale del nodo; **401** senza `Authorization`; **403** su
-  deny-list; **403** per un SA con solo `view` (niente `pods/exec`); **403** su `..`;
-  **404** file inesistente; **404** nodo senza pod di scan; file da 50 MB → `size: 1048576`,
-  `truncated: true`, `binary: true`, nessun OOM.
-- Log di audit presenti per ogni tentativo, con l'utente giusto
-  (`admin` e `system:serviceaccount:…:fio-viewer`) ed esito.
+- Containerfile: all three stages build, the image is 146 MB, the push succeeds.
+- `helm install` and the patch Job: the plugin is added to `consoles.operator/cluster`
+  **preserving** the ones already there (`monitoring-plugin`, `odf-console`, …).
+- The console registers the plugin and mounts the proxy route
+  `/api/proxy/plugin/file-integrity-console-plugin/fio-backend/`, which is exactly the URL the
+  frontend builds from `BACKEND_BASE_URL`.
+- Static assets served over TLS by the Go binary, `plugin-manifest.json` with
+  `cache-control: no-cache`, `en` and `it` locales reachable, `/healthz` 200.
+- Retrieve, all eight cases exercised against the Service: happy path 200 with real node
+  content; **401** without `Authorization`; **403** on the deny list; **403** for an SA with only
+  `view` (no `pods/exec`); **403** on `..`; **404** for a missing file; **404** for a node with
+  no scan pod; a 50 MB file → `size: 1048576`, `truncated: true`, `binary: true`, no OOM.
+- Audit records present for every attempt, with the right user (`admin` and
+  `system:serviceaccount:…:fio-viewer`) and outcome.
 
-Due bug trovati dal cluster e corretti:
+Two bugs the cluster found, both fixed:
 
-- `--max-file-bytes` veniva reso come `1.048576e+06` (Helm interpreta i numeri YAML come
-  float64) e il binario rifiutava il flag → `| int64` nel template.
-- il predicato di fallback dell'executor tornava `true` per qualunque errore, quindi a ogni
-  lettura fallita il comando veniva rieseguito su SPDY e lo stderr compariva due volte → ora
-  usa `httpstream.IsUpgradeFailure`/`IsHTTPSProxyError`, come kubectl.
+- `--max-file-bytes` rendered as `1.048576e+06` (Helm parses YAML numbers as float64) and the
+  binary rejected the flag → `| int64` in the template.
+- the executor's fallback predicate returned `true` for any error, so every failed read re-ran
+  the command over SPDY and its stderr appeared twice → now uses
+  `httpstream.IsUpgradeFailure`/`IsHTTPSProxyError`, the same conditions as kubectl.
 
-## CI e qualità (25 luglio 2026)
+## CI and code quality (25 July 2026)
 
-- `yarn lint` **non era mai partito**: la config importava `eslint-plugin-playwright`, assente
-  tra le dipendenze. Tolto insieme al blocco che copriva `integration-tests/`, che qui non
-  esiste. Sotto ci stavano 143 violazioni, ora **zero**.
-- `.prettierrc.yml` diceva `printWidth: 100` mentre il codice è scritto a 80: allineato a 80,
-  altrimenti ogni `--fix` riformatta il repo intero.
-- Correzioni sostanziali emerse dal linter: `errorMessage()` in `src/lib/errors.ts` al posto di
-  cinque `(e as Error)?.message ?? String(e)` (che producevano `[object Object]`); narrowing
-  vero della risposta JSON in `backend.ts`; quattro reset di stato spostati da `useEffect` alla
-  fase di render, che evita anche un frame con i dati del nodo precedente.
-- Due scelte di configurazione invece che di codice, documentate in `eslint.config.mjs`:
-  numeri ammessi nei template literal, e `no-non-null-assertion` spento nei soli file `.spec`.
-- `.github/workflows/ci.yml`: frontend (lint senza `--fix`, tsc, test, build, allineamento
-  `en`/`it`), backend (vet, test, build), chart (`helm lint` + `helm template` con assert sui
-  **default**, che è il caso che aveva prodotto `1.048576e+06`, e un assert che il SA del
-  backend resti senza ruoli), immagine (`podman build` + smoke test del binario). Tutti i
-  controlli sono stati provati a mano qui, tranne il job dell'immagine: manca podman.
+- `yarn lint` **had never run**: the config imported `eslint-plugin-playwright`, which is not a
+  dependency here. Removed along with the block covering `integration-tests/`, which does not
+  exist in this repository. Underneath were 143 violations; now **zero**.
+- `.prettierrc.yml` said `printWidth: 100` while the code is written at 80: aligned to 80, since
+  otherwise every `--fix` reformats the whole repository.
+- Substantive fixes surfaced by the linter: `errorMessage()` in `src/lib/errors.ts` replacing
+  five `(e as Error)?.message ?? String(e)` (which rendered `[object Object]`); real narrowing of
+  the JSON error body in `backend.ts`; four state resets moved from `useEffect` to render phase,
+  which also removes a frame showing the previous node's data.
+- Two configuration choices rather than code changes, documented next to the rules in
+  `eslint.config.mjs`: numbers allowed in template literals, and `no-non-null-assertion` off in
+  `.spec` files only.
+- `.github/workflows/ci.yml`: frontend (lint without `--fix`, tsc, test, build, `en`/`it`
+  alignment), backend (vet, test, build), chart (`helm lint` plus `helm template` with assertions
+  on the **defaults**, the case that produced `1.048576e+06`, and an assertion that the backend's
+  SA still has no roles), image (`podman build` plus a smoke test of the binary). Every check was
+  run by hand here except the image job: no podman in this environment.
 
-## Compatibilità con console più vecchie — deciso, non ancora fatto
+## Compatibility with older consoles — decided, not yet done
 
-Obiettivo dichiarato dall'utente: provare anche su **OCP 4.16 e 4.18**. Strada scelta: **un
-branch per generazione di console** (come fanno `odf-console` e `netobserv`), `main` su 4.22 e
-un `release-4.x` compilato contro l'SDK di quella generazione. **Da affrontare dopo** aver
-chiuso il 4.22.
+Stated goal: also try OCP **4.16 and 4.18**. Chosen approach: **one branch per console
+generation** (as `odf-console` and `netobserv` do), `main` on 4.22 and a `release-4.x` built
+against that generation's SDK. **To be tackled after** 4.22 is finished.
 
-Perché non basta provare e vedere: il manifest dichiara `@console/pluginAPI: >=4.22.0-0`, quindi
-su 4.16/4.18 il plugin non viene proprio caricato. Abbassare quel vincolo è una riga e sarebbe
-il modo peggiore di procedere, perché sotto ci sono tre incompatibilità vere:
+Why trying it and seeing is not enough: the manifest declares
+`@console/pluginAPI: >=4.22.0-0`, so on 4.16/4.18 the plugin is not loaded at all. Lowering that
+bound is a one-line change and the worst way to proceed, because three real incompatibilities sit
+underneath:
 
-- **PatternFly 6** qui, 5 lì: markup `pf-v6-*` servito a un foglio di stile `pf-v5` dà una
-  pagina strutturalmente giusta e visivamente rotta.
-- **react-router 7** qui, v5 lì. È il punto insidioso: le rotte le registra la console e
-  `useParams()` legge il contesto del *suo* router. Con una copia diversa del pacchetto quel
-  contesto non esiste, `useParams()` torna `{}`, `nodeName` diventa stringa vuota e la pagina
-  dice "nodo non trovato" senza alcun errore — sembra un bug di logica ed è di packaging.
-- **React 18** qui; da verificare cosa fornisce la console 4.16.
+- **PatternFly 6** here, 5 there: `pf-v6-*` markup served against a `pf-v5` stylesheet gives a
+  structurally correct, visually broken page.
+- **react-router 7** here, v5 there. This is the treacherous one: routes are registered by the
+  console and `useParams()` reads *its* router's context. With a different copy of the package
+  that context does not exist, `useParams()` returns `{}`, `nodeName` becomes an empty string and
+  the page says "node not found" with no error at all — it looks like a logic bug and is a
+  packaging one.
+- **React 18** here; what the 4.16 console provides still needs checking.
 
-Primo passo utile in ogni caso, indipendente dalla strada: installare su una 4.16/4.18 e
-verificare che il rifiuto sia **pulito** — nessuna voce di menu, nessun errore in faccia
-all'utente, console che funziona normalmente.
+A useful first step regardless of the approach: install on a 4.16/4.18 cluster and check that the
+refusal is **clean** — no menu entry, no error in the user's face, console otherwise working.
 
-## Da fare
+## To do
 
-9. **Verifica della UI nel browser** — fatta in parte: l'utente ha confermato che il toggle del
-   report grezzo ora funziona. Restano overview, filtri, modale del contenuto, re-init, e il
-   gating quando manca il CRD `FileIntegrity` (che sul lab non si può provare senza
-   disinstallare l'operatore).
+10. **Browser verification of the UI** — partly done: the raw-report toggle was confirmed
+    working. Still open: the overview, the filters, the file content modal, re-init, and the
+    gating when the `FileIntegrity` CRD is absent (which cannot be exercised on this lab without
+    uninstalling the operator).
 
-   Trappola trovata sul campo: la console legge il manifest del plugin **una volta e lo mette
-   in cache**. Dopo una nuova build serve `oc rollout restart deployment/console -n
-   openshift-console`, altrimenti il browser continua a caricare il bundle vecchio comunque lo
-   si ricarichi. Documentata nel README.
-10. **Pubblicazione su `quay.io/asalvati`** — deciso il 25 luglio 2026: **solo linux/amd64**, e
-    la build la fa **Quay** con una regola automatica sul repository GitHub, non un workflow di
-    release. Il Containerfile resta quindi senza `TARGETARCH`. Da configurare nel trigger Quay:
-    percorso `/Containerfile` (il wizard cerca un `Dockerfile`, che qui non esiste di proposito)
-    e contesto `/`. Il multi-arch, se servirà, costa poco: gli asset sono JavaScript e il
-    binario è `CGO_ENABLED=0`, quindi entrambi gli stage restano nativi senza emulazione.
+    A trap found in the field: the console reads a plugin's manifest **once and caches it**.
+    After a new build, `oc rollout restart deployment/console -n openshift-console` is required,
+    otherwise the browser keeps loading the old bundle no matter how hard it is reloaded.
+    Documented in the README.
+11. **Publishing to `quay.io/asalvati`** — decided on 25 July 2026: **linux/amd64 only**, and the
+    build is done by **Quay** through an automatic rule on the GitHub repository, not a release
+    workflow. The Containerfile therefore stays free of `TARGETARCH`. To configure in the Quay
+    trigger: path `/Containerfile` (the wizard looks for a `Dockerfile`, which deliberately does
+    not exist here) and context `/`. Multi-arch, if it is ever needed, is cheap: the assets are
+    JavaScript and the binary is `CGO_ENABLED=0`, so both build stages stay native with no
+    emulation.
 
-    Due trappole già verificate sul campo, entrambe nel README: con un tag mutabile come
-    `:latest` serve `plugin.imagePullPolicy=Always`, altrimenti il kubelet riusa l'immagine in
-    cache e il rollout riparte con il binario vecchio dichiarando successo; e dopo ogni nuova
-    build va riavviata la console, che tiene il manifest del plugin in cache.
+    Two traps already verified in the field, both in the README: with a mutable tag such as
+    `:latest`, `plugin.imagePullPolicy=Always` is required, otherwise the kubelet reuses the
+    cached image and the rollout reports success while running the previous binary; and after
+    every new build the console has to be restarted, since it caches the plugin manifest.
 
-## Note d'ambiente
+## Environment notes
 
-- Il toolchain Go **non è preinstallato** e `/tmp` è un tmpfs da 1 GB: troppo piccolo per il
-  module cache. Installare Go in `/var/tmp` (46 GB) ed esportare:
+- The Go toolchain is **not preinstalled** and `/tmp` is a 1 GB tmpfs, too small for the module
+  cache. Install Go under `/var/tmp` (46 GB) and export:
   ```sh
   export PATH=/var/tmp/go/bin:$PATH GOPATH=/var/tmp/gopath \
          GOMODCACHE=/var/tmp/gomod GOCACHE=/var/tmp/gocache
   ```
-  `/var/tmp` è un tmpfs: si svuota al riavvio del container, va rifatto ogni volta. Vale lo
-  stesso per `helm`, anch'esso assente (`oc` e `kubectl` invece ci sono).
-- `yarn` non è nel PATH: usare il binario committato, `node .yarn/releases/yarn-4.14.1.cjs <cmd>`.
-- Il token del cluster di lab è fornito dall'utente in chat, non è salvato nel repo.
+  `/var/tmp` is a tmpfs: it empties when the container restarts, so this has to be redone every
+  time. The same goes for `helm`, also absent (`oc` and `kubectl` are present).
+- `yarn` is not on the PATH: use the committed binary,
+  `node .yarn/releases/yarn-4.14.1.cjs <cmd>`.
+- The lab cluster token is supplied by the user in chat; it is not stored in the repository.
