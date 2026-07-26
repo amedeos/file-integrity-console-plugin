@@ -1,13 +1,8 @@
 [
   {
-    "type": "console.flag/model",
+    "type": "console.flag/hookProvider",
     "properties": {
-      "flag": "FILE_INTEGRITY",
-      "model": {
-        "group": "fileintegrity.openshift.io",
-        "version": "v1alpha1",
-        "kind": "FileIntegrity"
-      }
+      "handler": { "$codeRef": "flags.useFileIntegrityFlag" }
     }
   },
   {
