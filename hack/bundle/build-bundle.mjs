@@ -175,12 +175,27 @@ const take = (kind) => {
 const deployment = take('Deployment');
 const consolePlugin = take('ConsolePlugin');
 
-// OLM derives the ServiceAccount from the deployment's serviceAccountName and
-// creates it itself, so shipping the chart's copy as well is a duplicate that
-// `operator-sdk bundle validate` rejects outright. Dropping it loses nothing
-// and preserves the point of it: with no `permissions` in the CSV, the account
-// OLM creates is bound to nothing at all, which is the invariant the chart's
-// version documents at length.
+// The chart's ServiceAccount does not ship, and cannot: `operator-sdk bundle
+// validate` rejects any ServiceAccount in a bundle whose name matches one a
+// deployment runs as — categorically, whatever else the CSV says. OLM is meant
+// to create it, and OLM creates it from `permissions`, from nothing else. A
+// bundle with a dedicated account and no permissions block therefore installs a
+// deployment that can never schedule: "error looking up service account ...
+// not found". Observed; the CSV sat in Installing until it was noticed.
+//
+// So the account is declared through `permissions` with an empty rule list, and
+// the emptiness is the invariant rather than a placeholder. OLM materialises
+// each entry as a ServiceAccount, a Role carrying exactly those rules, and a
+// RoleBinding (resolver/rbac.go, unconditionally). An empty Role grants
+// nothing, which is what "granted nothing" looks like in OLM's vocabulary — the
+// chart says the same thing by creating no Role at all.
+//
+// The alternative was to drop `serviceAccountName` and let the pod run as the
+// namespace's `default`, which creates no RBAC object whatsoever. Rejected, and
+// not on aesthetics: `default` is shared with everything else in the namespace,
+// so a rule granted to it later for some unrelated reason would be inherited by
+// this pod in silence. A dedicated account nobody binds anything to is the
+// safer of the two, which is the whole point of the invariant.
 const serviceAccount = take('ServiceAccount');
 if (
   serviceAccount.metadata.name !==
@@ -188,8 +203,8 @@ if (
 ) {
   throw new Error(
     `the chart's ServiceAccount is ${serviceAccount.metadata.name} but the Deployment runs as ` +
-      `${deployment.spec.template.spec.serviceAccountName}; OLM would create the latter and the ` +
-      'former would never exist',
+      `${deployment.spec.template.spec.serviceAccountName}; the bundle would declare one account ` +
+      'and schedule the pod against another',
   );
 }
 
@@ -233,13 +248,19 @@ csv.spec.icon = [
   },
 ];
 
-// No `permissions` and no `clusterPermissions`, and their absence is the point:
-// the plugin's ServiceAccount is bound to nothing, because every call the
-// backend makes against the API server is made with the browsing user's token.
-// CI asserts this stays absent, as it already does for the chart.
+// One `permissions` entry with no rules, and no `clusterPermissions` at all.
+// The empty list is the invariant, not an omission waiting to be filled: every
+// call the backend makes against the API server is made with the browsing
+// user's token, so the pod's own identity is meant to be able to do nothing.
+// This is the only way to say that in OLM and still get the ServiceAccount
+// created — see the note above the ServiceAccount. CI asserts the list stays
+// empty, as it asserts the chart renders no Role.
 csv.spec.install = {
   strategy: 'deployment',
   spec: {
+    permissions: [
+      { serviceAccountName: serviceAccount.metadata.name, rules: [] },
+    ],
     deployments: [
       {
         name: deployment.metadata.name,

@@ -539,14 +539,53 @@ jobs:
           console.log(`${version}: ${want.range}, channel ${want.channel}, all as declared`);
           EOF
 
-      # The counterpart of the chart's "No RBAC for the plugin ServiceAccount".
-      # OLM creates the account from the deployment's serviceAccountName and
-      # binds it to whatever the CSV declares — so declaring nothing is what
-      # keeps the invariant, and it has to be asserted in the bundle too.
-      - name: No RBAC in the bundle
+      # The counterpart of the chart's "No RBAC for the plugin ServiceAccount",
+      # and it cannot be spelled the same way. OLM creates the ServiceAccount
+      # only from `permissions`, and turns every entry there into a Role and a
+      # RoleBinding whatever its rules — so the bundle has to declare one entry
+      # to get an account at all, and the invariant becomes the emptiness of its
+      # rules rather than the absence of the block.
+      #
+      # Read rather than grepped, because "rules: []" is the whole assertion and
+      # a grep for it would pass just as happily on a rule added underneath.
+      - name: The plugin ServiceAccount is granted nothing
         run: |
-          ! grep -qE '^ *(permissions|clusterPermissions):' \
-            dist/bundle/manifests/*.clusterserviceversion.yaml
+          node - <<'EOF'
+          const fs = require('fs');
+          const yaml = require('js-yaml');
+          const version = JSON.parse(fs.readFileSync('package.json', 'utf8')).version;
+          const csv = yaml.load(
+            fs.readFileSync(
+              `dist/bundle/manifests/file-integrity-console-plugin.v${version}.clusterserviceversion.yaml`,
+              'utf8',
+            ),
+          );
+          const { permissions = [], clusterPermissions = [] } = csv.spec.install.spec;
+
+          const fail = [];
+          if (clusterPermissions.length) {
+            fail.push('the CSV declares clusterPermissions; it must declare none');
+          }
+          if (permissions.length !== 1) {
+            fail.push(`${permissions.length} permissions entries; expected exactly one`);
+          }
+          for (const p of permissions) {
+            if ((p.rules ?? []).length) {
+              fail.push(
+                `${p.serviceAccountName} is granted ${p.rules.length} rule(s); it must be granted none. ` +
+                  'Everything the backend does against the API server runs as the calling user, so a ' +
+                  "rule here means something has started using the pod's identity instead.",
+              );
+            }
+          }
+          if (fail.length) {
+            fail.forEach((f) => console.error(`  ${f}`));
+            process.exit(1);
+          }
+          console.log(
+            `${permissions[0].serviceAccountName}: no rules, no clusterPermissions`,
+          );
+          EOF
           ! grep -rqE '^kind: (Cluster)?Role(Binding)?$' dist/bundle/manifests/
 
   image:

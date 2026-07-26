@@ -247,9 +247,12 @@ install would put the pod in `openshift-operators`, which is not the namespace
 the ConsolePlugin names. `openshift-file-integrity` is where the File Integrity
 Operator runs, and the plugin belongs beside the operator it reads.
 
-The bundle grants its ServiceAccount nothing, exactly as the chart does. OLM
-creates the account from the deployment and binds no role to it, because the CSV
-declares none.
+The bundle grants its ServiceAccount nothing, exactly as the chart does — the
+CSV declares one permissions entry with an empty rule list and no cluster
+permissions. OLM turns that into the account, plus a Role and a RoleBinding
+carrying no rules, so unlike the chart install you will see two RBAC objects
+here. They permit nothing; the backend acts only as the user browsing the
+console.
 
 [trusted]: https://github.com/openshift/console/blob/master/frontend/packages/operator-lifecycle-manager/src/utils.tsx
 
