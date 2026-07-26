@@ -105,14 +105,28 @@ them. There are **three** generations between 4.16 and 4.22, not two:
 
 | | 4.16 – 4.18 | 4.19 – 4.21 | 4.22+ (`main`) |
 |---|---|---|---|
-| PatternFly | 5.1 | 6.2 | 6.4 |
+| PatternFly | 5.2 | 6.2 | 6.4 |
 | React | 17 | 17 | 18 |
-| router | `react-router-dom` 5.3 | `react-router-dom` 5.3 | `react-router` 7.13 |
+| console's router | `react-router-dom` 5.3 | `react-router-dom` 5.3 | `react-router` 7.13 |
+| **what the shim imports** | `react-router-dom-v5-compat` | `react-router-dom-v5-compat` | `react-router` |
 | SDK | 1.2.0 (webpack 1.1.0) | `4.19-latest` | `4.22-latest` |
 | `@console/pluginAPI` | `>=4.16.0-0 <4.19.0-0` | `>=4.19.0-0 <4.22.0-0` | `>=4.22.0-0` |
 
 PatternFly breaks at 4.19; React and the router break at 4.22. The middle
 generation is a subset of neither neighbour.
+
+The two router rows are deliberately separate, because taking the console's own
+dependency as the answer is wrong and wrong *quietly*. Before 4.22 the console
+runs react-router-dom 5.3, but it builds plugin page routes in
+`frontend/public/components/app-contents.tsx` with `Route` and `Routes`
+imported from `react-router-dom-v5-compat`, so a plugin component is mounted in
+the v6 context. Both contexts exist at once — `CompatRouter` is nested inside
+the v5 router — so reading the wrong one returns an empty object rather than
+throwing. Observed on 4.16: every node report claimed the node had been removed
+from the cluster, naming it as the empty string. The compat package is a
+singleton shared module with no fallback, so it belongs in `package.json` too;
+that is what gives webpack a `requiredVersion` and makes the plugin use the
+console's copy.
 
 A release branch differs from `main` in the three shim modules, the dependency
 pins in `package.json`, the `@console/pluginAPI` bound, and — for the PatternFly
