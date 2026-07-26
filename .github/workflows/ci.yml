@@ -2,8 +2,16 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # Release branches too: merging a pull request into one is a push, and
+    # without this the branch tip that Quay builds from is never checked as a
+    # whole — only the pull request that produced it was.
+    branches: [main, 'release-*']
   pull_request:
+  # Drift between `main` and a release branch is invisible from either side:
+  # nothing touches the release branch when `main` moves, so its own CI never
+  # runs and the divergence sits there. This is the only thing that notices.
+  schedule:
+    - cron: '17 6 * * *'
 
 # A second push to the same branch makes the first run pointless.
 concurrency:
@@ -17,6 +25,8 @@ jobs:
   hygiene:
     name: Source hygiene
     runs-on: ubuntu-latest
+    # The nightly run exists only for the branch-delta drift check.
+    if: github.event_name != 'schedule'
     steps:
       - uses: actions/checkout@v4
 
@@ -51,9 +61,126 @@ jobs:
           fi
           echo "$(git ls-files | wc -l) tracked files, none containing a NUL byte"
 
+  # A release branch exists to differ from `main` in a handful of files and in
+  # nothing else. Left to discipline, that holds until the first backend fix
+  # written on the branch instead of merged into it, and from then on there are
+  # two products rather than one built twice.
+  #
+  # The check is symmetric on purpose, and both directions matter:
+  #
+  #   - a path outside the declared set appears     -> the branch grew a
+  #     divergence nobody agreed to;
+  #   - a path inside the declared set is identical -> harmless, reported only.
+  #
+  # A fix landing on `main` also turns the branch red, because until it is
+  # merged forward every file that fix touched *is* a difference. That is the
+  # intended reading: not arriving is the failure, and it should be loud.
+  branch-delta:
+    name: Release branch delta
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The comparison is against `main`, which a shallow checkout of a
+          # release branch does not have.
+          fetch-depth: 0
+
+      - name: Fetch main and the release branches
+        run: git fetch --quiet origin '+refs/heads/*:refs/remotes/origin/*'
+
+      - name: Nothing outside the declared delta
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          node - <<'EOF'
+          const fs = require('fs');
+          const { execFileSync } = require('child_process');
+          const git = (...args) =>
+            execFileSync('git', args, { encoding: 'utf8' })
+              .split('\n')
+              .filter(Boolean);
+
+          const declared = JSON.parse(
+            fs.readFileSync('.github/branch-delta.json', 'utf8'),
+          );
+          const isRelease = (b) => /^release-/.test(b ?? '');
+
+          // On a pull request the checkout is the merge commit, so HEAD is what
+          // the branch would become — which is the thing worth judging. On a
+          // push it is the branch tip. The nightly run has no ref of its own
+          // and sweeps every release branch instead.
+          let targets;
+          if (process.env.EVENT === 'schedule') {
+            targets = git(
+              'for-each-ref',
+              '--format=%(refname:short)',
+              'refs/remotes/origin/release-*',
+            ).map((r) => ({ branch: r.replace(/^origin\//, ''), ref: r }));
+          } else if (
+            process.env.EVENT === 'pull_request' &&
+            isRelease(process.env.BASE_REF)
+          ) {
+            targets = [{ branch: process.env.BASE_REF, ref: 'HEAD' }];
+          } else if (isRelease(process.env.REF_NAME)) {
+            targets = [{ branch: process.env.REF_NAME, ref: 'HEAD' }];
+          } else {
+            console.log('Not a release branch; nothing to compare.');
+            process.exit(0);
+          }
+
+          let failed = false;
+          for (const { branch, ref } of targets) {
+            const entry = declared[branch];
+            if (!entry) {
+              console.error(
+                `${branch} has no entry in .github/branch-delta.json.\n` +
+                  'Declare what it is allowed to differ in, on `main`, before ' +
+                  'pushing it.',
+              );
+              failed = true;
+              continue;
+            }
+
+            const allowed = entry.paths;
+            const changed = git('diff', '--name-only', 'origin/main', ref);
+            const unexpected = changed.filter((f) => !allowed.includes(f));
+            const unused = allowed.filter((f) => !changed.includes(f));
+
+            if (unexpected.length) {
+              failed = true;
+              console.error(`\n${branch} differs from main outside its declared delta:`);
+              unexpected.forEach((f) => console.error(`  ${f}`));
+              console.error(
+                '\nOne of two things is true.\n' +
+                  '  - `main` moved and has not been merged forward. Merge it ' +
+                  '(with a merge commit, never a squash) and this clears.\n' +
+                  '  - the branch really did gain a new divergence. Then it is ' +
+                  'a design decision: add the path to .github/branch-delta.json ' +
+                  'on `main`, with the reason in the commit message.',
+              );
+            } else {
+              console.log(
+                `${branch}: ${changed.length} file(s) differ, all declared.`,
+              );
+            }
+
+            if (unused.length) {
+              console.log(
+                `${branch}: declared but identical today — ${unused.join(', ')}`,
+              );
+            }
+          }
+
+          process.exit(failed ? 1 : 0);
+          EOF
+
   frontend:
     name: Frontend
     runs-on: ubuntu-latest
+    # The nightly run exists only for the branch-delta drift check.
+    if: github.event_name != 'schedule'
     steps:
       - uses: actions/checkout@v4
 
@@ -143,6 +270,8 @@ jobs:
   backend:
     name: Backend
     runs-on: ubuntu-latest
+    # The nightly run exists only for the branch-delta drift check.
+    if: github.event_name != 'schedule'
     steps:
       - uses: actions/checkout@v4
 
@@ -169,6 +298,8 @@ jobs:
   chart:
     name: Helm chart
     runs-on: ubuntu-latest
+    # The nightly run exists only for the branch-delta drift check.
+    if: github.event_name != 'schedule'
     steps:
       - uses: actions/checkout@v4
 
@@ -217,6 +348,8 @@ jobs:
   image:
     name: Container image
     runs-on: ubuntu-latest
+    # The nightly run exists only for the branch-delta drift check.
+    if: github.event_name != 'schedule'
     steps:
       - uses: actions/checkout@v4
 
