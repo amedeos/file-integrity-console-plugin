@@ -1,4 +1,4 @@
-# Status — updated 25 July 2026
+# Status — updated 26 July 2026
 
 The approved plan is in [`IMPLEMENTATION-PLAN.md`](./IMPLEMENTATION-PLAN.md): it holds the
 decisions taken, the verified facts about the File Integrity Operator's data model (do **not**
@@ -331,39 +331,86 @@ branch for weeks, which is the only way that drift would ever be noticed.
 Pushes to release branches now trigger CI at all, which they did not — merging a pull request into
 one is a push, and the tip Quay builds from was never checked as a whole.
 
-## Where to pick up — 26 July 2026
+## `release-4.19` — 26 July 2026
 
-Everything is on `origin`; no branch holds anything unpushed. `main` is at #19, `release-4.16` at
-#20 and contains `main`.
+Built, merged as #23, and verified against a real 4.19 console. The middle generation was expected
+to be the awkward one — "a subset of neither neighbour" — and it is the cheapest of the three
+branches. **Four files** differ from `main`: `package.json`, `yarn.lock`, the chart's two version
+fields, and `src/lib/router.ts`. No markup port; `src/lib/k8s.ts` and `src/lib/styles.ts` are
+untouched, which is two of the three shims identical.
 
-**Next is `release-4.19`, and the plan is already researched.** The middle generation was expected
-to be the awkward one; it is the cheapest. Checked against the published packages and the console
-source, not inferred:
+`src/lib/router.ts` is the same line as `release-4.16` and for the same reason, checked rather than
+carried over: 4.19's `app-contents.tsx` imports `Route` and `Routes` from
+`react-router-dom-v5-compat`, exactly as 4.16's does.
 
-- consoles 4.19, 4.20 and 4.21 all load `@patternfly/patternfly` ^6.2.3, run React 17, and mount
-  plugin routes through `react-router-dom-v5-compat` exactly as 4.16 does;
-- the 4.19 webpack plugin still emits `loadPluginEntry`, so the SDK pin is load-bearing here too;
-- the 4.19 SDK exports `k8sGet`/`k8sPatch` and supports `console.flag/hookProvider`;
-- **every PatternFly API the components use exists in 6.2.3 with the same shape**, so there is no
-  markup port. The delta is six paths, already declared in `.github/branch-delta.json`: the
-  dependency pins, the lockfile, the chart's two version fields, and the three shims — of which
-  only `src/lib/router.ts` actually changes.
+### What the plan predicted and the build refuted
 
-Concretely: push `release-4.19` as a pointer at `main` (that is the branch creation, nothing to
-review), then one pull request into it with the pins — SDK `4.19-latest`, PatternFly `~6.2.3`
-including `@patternfly/patternfly`, React 17 with the `@types/react` resolutions,
-`react-router-dom-v5-compat`, `react-i18next` ^11.12.0, `@testing-library/react` ^12.1.5,
-`@console/pluginAPI` `>=4.19.0-0 <4.22.0-0`, version `0.1.0-ocp4.19`. **Do not pin webpack**: the
-4.19 plugin depends on `^5.75.0`, which `main`'s `^5.107.2` already satisfies, so the exact pin
-that `release-4.16` needs has no reason to exist here.
+Three of them, all found by executing rather than by reading versions — which is the pattern by now.
 
-Verify in the browser with `origin-console:4.19` and `BRIDGE_RELEASE_VERSION=4.19.38` — the current
-stable-4.19 z-stream, looked up rather than invented.
+- **"Do not pin webpack."** Wrong, and fatally: the 4.19 SDK plugin depends on `webpack` `^5.75.0`
+  and installing over `main`'s lockfile resolved a *second* copy at 5.109.0 beside the workspace's
+  5.107.2. The build dies with `runtimeTemplate.optionalChaining is not a function` — the newer
+  copy's `ConsumeSharedRuntimeModule` calling a method the older compiler driving the compilation
+  does not have. A `resolutions` entry at 5.107.2 keeps one copy and keeps it `main`'s compiler.
+  `yarn dedupe webpack` collapses it too, but upwards to 5.109.0, and that drops
+  `terser-webpack-plugin` — see below.
+- **"From 4.19 PatternFly is no longer a shared module."** It still is, with a fallback allowed;
+  the `provide shared module` lines say so. If it stops being shared, it is later than 4.19.
+- **"PatternFly at ~6.2.3 across the set."** The console pins the stylesheet at `^6.2.3` but
+  `react-core`, `react-icons` and `react-table` at `^6.2.2`, and **6.2.3 does not exist for
+  `react-icons`**. The floor is per package, not per generation: `~6.2.2` for the React packages,
+  `~6.2.3` for the stylesheet.
 
-**Then the small debts:** `terser-webpack-plugin` is used by `webpack.config.ts` but resolved only
-transitively; and the lab cluster still has the internal registry on `emptyDir`, the BuildConfig,
-the ImageStream, the `fio-curl` pod and the `fio-viewer` ServiceAccount, none of them needed now
-that the image comes from Quay.
+The nested-copy trap did recur, identically to `release-4.16`: `react-table` 6.2.3 asks for
+`react-core` `^6.2.3` and was given **6.6.0** nested. Closed with `resolutions`; the build now
+provides `react-core` 6.2.3, `react-icons` 6.2.2 and `Table` 6.2.3, all inside the 6.2 line. The
+build output remains the only place that is visible.
+
+### Checked on the published image, not only the local build
+
+Pulled back out of the registry and unpacked: version `0.1.0-ocp4.19`, `@console/pluginAPI`
+`>=4.19.0-0 <4.22.0-0`, `console.flag/hookProvider`, `loadPluginEntry` present and
+`__load_plugin_entry__` absent, `react-router-dom-v5-compat` referenced from the entry, both
+locales present. The CI style check passes against the 6.2.3 stylesheet: 10 names, 10 present —
+which also confirms `pf-v6-u-text-color-subtle`, the replacement for the dead class, exists in 6.2
+and not only in 6.4.
+
+### Seen in a browser, on a real 4.19 console
+
+Navigation item on first load, no console errors, overview laid out, node report for
+`control-plane-1` with the node name populated. That last one is the router shim: an empty name is
+what the wrong context produces, and it is what 4.16 showed before the shim was corrected.
+
+File retrieve errors, as on 4.16 and for the same reason — the two-container harness configures no
+`BRIDGE_PLUGIN_PROXY`, so the bridge's own `notFoundHandler` answers and the request never reaches
+the backend. Not a finding about the branch.
+
+### A correction this turned up in the README
+
+The README said file retrieve was unverified on "4.16 – 4.18" because those consoles run different
+code. Only 4.16 does. The API server's WebSocket exec subprotocol sits behind
+`TranslateStreamCloseWebsocketRequests`, alpha and off in Kubernetes 1.29, beta and on from 1.30;
+OpenShift 4.16 is 1.29, 4.17 is 1.30, 4.19 is 1.32. So the SPDY fallback — the path with no field
+use behind it — runs on 4.16 alone, and 4.17 upwards take the same path as `main`. Narrower, not
+closed: nobody has read a file through the plugin on any cluster older than 4.22.
+
+## Where to pick up — 26 July 2026, later
+
+All three generations exist and are merged: `main`, `release-4.19` (#23), `release-4.16` (#22).
+Each release branch contains `origin/main`; the `branch-delta` job is green on both.
+
+**Left to do**, none of it blocking:
+
+- **`terser-webpack-plugin` is required by `webpack.config.ts` and declared nowhere.** It resolves
+  today only because webpack happens to depend on it, which is why deduping webpack upwards broke
+  the 4.19 build. Fixed on `main` in this same pull request; the release branches pick it up by
+  merge-forward, where `package.json` conflicts by design.
+- **Lab cleanup**: the internal registry on `emptyDir`, the BuildConfig, the ImageStream, the
+  `fio-curl` pod and the `fio-viewer` ServiceAccount and RoleBinding are all left over from before
+  the image came from Quay.
+- **Blocked on a real 4.16 cluster**: the SPDY exec fallback — read a file through the plugin, read
+  it on the node, compare byte count and `sha256` before looking at the interface — and the file
+  content modal's successful state, which no harness has ever rendered.
 
 ## Environment notes
 

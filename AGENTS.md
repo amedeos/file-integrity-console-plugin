@@ -130,7 +130,10 @@ console's copy.
 
 A release branch differs from `main` in the three shim modules, the dependency
 pins in `package.json`, the `@console/pluginAPI` bound, and — for the PatternFly
-5 branch only — the component markup.
+5 branch only — the component markup. `release-4.19` is what that costs when the
+markup is not involved: four files, one of them the lockfile, and `k8s.ts` and
+`styles.ts` untouched. The middle generation is a subset of neither neighbour,
+but it is the cheapest of the three branches, not the hardest.
 
 ### Test against another generation without another cluster
 
@@ -199,6 +202,18 @@ Two things this buys that a cluster does not:
   module. Nothing fails: the plugin simply advertises a version the console is
   not serving. A `resolutions` entry collapses it, and the build output is the
   only place the mismatch is visible.
+- **A release branch needs one webpack, and a `resolutions` entry is what
+  guarantees it.** The SDK's webpack plugin carries its own `webpack`
+  dependency — `^5.75.0` in the 4.19 plugin — and installing on top of an
+  existing lockfile resolves that descriptor separately from the workspace's
+  own. Two copies then take part in one compilation and it fails outright:
+  observed on 4.19 as `runtimeTemplate.optionalChaining is not a function`,
+  the newer copy's `ConsumeSharedRuntimeModule` calling a method the older
+  compiler driving the build does not have.
+  `yarn dedupe webpack` also collapses it, but upwards, to whatever is newest —
+  and on 4.19 that dropped `terser-webpack-plugin`, which `webpack.config.ts`
+  requires while relying on webpack to supply it transitively. Pin instead, to
+  the version `main` uses, so the branch is built by the same compiler.
 - **`@types/react` needs a `resolutions` entry on the React 17 branches.**
   `@types/react-router` and `@types/react-router-dom` both depend on
   `@types/react: "*"`, so each pulls its own copy of 19, under which `Link`
@@ -218,13 +233,23 @@ Two things this buys that a cluster does not:
   `console.flag/hookProvider` instead: the console mounts it via
   `useResolvedExtensions` whenever the plugin arrives, and `useK8sModel` is a
   live selector, so neither ordering matters.
-- **On 4.16–4.18 PatternFly is a module the console *shares* with plugins**, with
-  a fallback allowed; from 4.19 it is not shared and the plugin bundles its own.
-  So on the oldest generation the components that actually render may come from
-  the console's PatternFly build rather than the one in the lockfile — a
-  component missing there fails at runtime, in the browser, with CI green.
-  Check this against the real console image before designing around any
-  particular PatternFly 5 API.
+- **PatternFly is a module the console *shares* with plugins on 4.16–4.18 and
+  on 4.19–4.21 alike**, with a fallback allowed. It was predicted to stop being
+  shared at 4.19; the 4.19 build's `provide shared module` lines say otherwise,
+  so if it stops it is somewhere later. The consequence is that the components
+  which actually render may come from the console's PatternFly build rather
+  than the one in the lockfile — a component missing there fails at runtime, in
+  the browser, with CI green. Check this against the real console image before
+  designing around any particular PatternFly API.
+- **The PatternFly floor can be two different numbers.** "Pin to the floor" is
+  one rule but not one version: console 4.19 declares `@patternfly/patternfly`
+  at `^6.2.3` and `react-core`, `react-icons` and `react-table` at `^6.2.2`,
+  and **6.2.3 does not exist for `react-icons` at all**. Read the console's
+  `frontend/package.json` per package rather than picking one number and
+  applying it across the set. On `release-4.19` that is `~6.2.2` for the React
+  packages and `~6.2.3` for the stylesheet — which is also the stylesheet CI
+  checks `src/lib/styles.ts` against, so it has to be the one the console
+  loads.
 
 **Paths that must never diverge between branches:** `backend/`, `charts/`,
 `Containerfile`, `.github/workflows/ci.yml`, `console-extensions.json`,
