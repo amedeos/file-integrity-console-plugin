@@ -239,10 +239,25 @@ branches — never rebase a pushed branch, and never author the change on the
 branch. The first backend fix written directly on a release branch is where
 three branches quietly become three products.
 
-Discipline is not the mechanism. CI on a release branch should assert that
-`git diff --name-only origin/main HEAD` contains nothing outside that branch's
-declared delta, so a fix landing on `main` does not merely fail to arrive — it
-turns the release branch red until someone merges it.
+Discipline is not the mechanism. CI enforces this: the `branch-delta` job
+asserts that `git diff --name-only origin/main HEAD` contains nothing outside
+the set declared for that branch in **`.github/branch-delta.json`**, so a fix
+landing on `main` does not merely fail to arrive — it turns the release branch
+red until someone merges it.
+
+The declaration lives on `main` and is merged forward unchanged, which means
+widening a branch's delta is a change reviewed where the rule is, not on the
+branch it constrains. Two things follow:
+
+- **A new release branch needs its entry added on `main` first.** Without one,
+  the job fails rather than waving the branch through.
+- **A path may be declared and identical.** `src/lib/k8s.ts` is one of the three
+  shims and so permitted to differ, but nothing has needed to change it; the job
+  reports that as information, not as a fault.
+
+It also runs nightly across every release branch, because drift is invisible
+from both sides: nothing touches a release branch when `main` moves, so its own
+CI never runs and the gap simply sits there.
 
 ## Things that have already cost time
 
