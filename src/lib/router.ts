@@ -2,27 +2,25 @@
  * Routing, in one place.
  *
  * The router comes from the console at runtime, and which package provides it
- * depends on the console generation: `react-router-dom` v5 up to 4.21,
- * `react-router` v7 from 4.22. Both export `Link` and `useParams` with
- * compatible enough shapes for what this plugin does, so a release branch only
- * has to change the import line below.
+ * depends on the console generation: `react-router` v7 from 4.22,
+ * `react-router-dom-v5-compat` before it. Both export `Link` and `useParams`
+ * with compatible enough shapes for what this plugin does, so a release branch
+ * only has to change the import line below.
+ *
+ * The compat package rather than `react-router-dom`, even though this console
+ * generation runs v5: `frontend/public/components/app-contents.tsx` builds the
+ * plugin page routes with `Route` and `Routes` imported from the compat
+ * package, so a plugin component is mounted inside the v6 context, not the v5
+ * one. Both contexts exist — the console nests `CompatRouter` inside the v5
+ * router — which is what makes the wrong choice fail silently rather than
+ * throw. It is also a singleton shared module with no fallback, so the copy
+ * used is the console's own.
  *
  * Importing the package directly from a component is what makes that a
- * many-file change instead of a one-file change — and, worse, a silent one:
- * a component holding a different copy of the router than the console sees no
- * route context at all, so `useParams()` returns an empty object and the page
- * renders as though the node simply did not exist.
- *
- * `useParams` is wrapped rather than re-exported because the two generations
- * disagree about the return type: v7 types every parameter as possibly
- * undefined, v5 types them as present. A component written against v5's
- * promise would have its `?? ''` flagged as dead code here and be a latent
- * crash on 4.22, so this shim narrows both to the weaker of the two. The
- * runtime value is the same object either way; only the type differs.
+ * many-file change instead of a one-file change — and, worse, a silent one.
+ * Observed on 4.16 with `react-router-dom` here: `useParams()` returned an
+ * empty object, and the node report page reported the node as missing from the
+ * cluster, naming it as the empty string. Nothing failed; the page was simply
+ * answering a question about a node called "".
  */
-import { useParams as useRouterParams } from 'react-router-dom';
-
-export { Link } from 'react-router-dom';
-
-export const useParams = <T extends Record<string, string>>(): Partial<T> =>
-  useRouterParams<Partial<T>>();
+export { Link, useParams } from 'react-router-dom-v5-compat';
