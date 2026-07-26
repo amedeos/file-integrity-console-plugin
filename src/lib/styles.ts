@@ -10,12 +10,18 @@
  * the console loaded or silently do nothing. Keeping them here means a release
  * branch changes one file rather than fourteen call sites, and that a mismatch
  * is visible in one diff instead of hiding in JSX.
+ *
+ * Silently doing nothing is not hypothetical: `pf-v6-u-color-200` sat here for
+ * weeks and never matched anything, because it is a PatternFly 5 name that a
+ * mechanical `v5` → `v6` swap carried across. CI now checks every name below
+ * against the stylesheet pinned in package.json, which is the only way to tell
+ * a working class name from a dead one.
  */
 
 /** Utility classes. */
 export const CSS = {
   /** Secondary text colour, for de-emphasised detail. */
-  textSecondary: 'pf-v6-u-color-200',
+  textSecondary: 'pf-v6-u-text-color-subtle',
   fontSizeSm: 'pf-v6-u-font-size-sm',
   marginTopSm: 'pf-v6-u-mt-sm',
   marginTopMd: 'pf-v6-u-mt-md',
