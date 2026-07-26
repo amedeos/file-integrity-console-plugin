@@ -10,8 +10,20 @@ plan, and what is left to do. Read both before starting.
 
 ## Branches and commits
 
-- **Never commit to `main`.** Branch first, open a pull request, let CI run.
-  This applies to a one-line documentation fix as much as to a feature.
+- **Never push to `main`, and never to a release branch either.** Branch first,
+  open a pull request, let CI run. This applies to a one-line documentation fix
+  as much as to a feature. A release branch is not a working branch: Quay builds
+  an image on every push to it, so pushing directly publishes the tag and *then*
+  runs CI — by the time the build goes red, the broken image is already
+  something a user can pull.
+- **A pull request merging `main` forward into a release branch is merged with a
+  merge commit — never squashed, never rebased.** Squashing flattens it into a
+  new commit and git loses the record that `main`'s commits are ancestors, so
+  the next merge-forward re-presents the same changes as conflicts, and keeps
+  doing it. Squash stays fine for a pull request carrying the branch's own
+  delta. Rebasing is worse: it rewrites commits that have already been pushed
+  and leaves the remote and every clone divergent, which is how `release-4.16`
+  first diverged.
 - One branch per concern. Two unrelated changes are two branches, so that each
   can be reviewed, reverted or held back on its own.
 - **English** everywhere in the repository: code, comments, documents, commit
@@ -177,6 +189,21 @@ Two things this buys that a cluster does not:
   `@types/react-router` and `@types/react-router-dom` both depend on
   `@types/react: "*"`, so each pulls its own copy of 19, under which `Link`
   stops being usable as a JSX element.
+- **Do not gate anything on `console.flag/model` before 4.22.** That extension
+  is evaluated only when API discovery completes, and a plugin registering
+  afterwards adds its model to the console's map without anything re-reading
+  it — `frontend/public/reducers/features.ts` carries a `TODO(vojtech): change
+  of 'CRDs' should trigger relevant detection logic` beside that code, and 4.22
+  fixed it with an `UpdateModelFlags` action. Discovery does not run again
+  either: for a caller allowed to watch CustomResourceDefinitions,
+  `startAPIDiscovery` runs it once and then only when a CRD is added or
+  removed; the 60-second poll is the fallback for callers without that
+  permission. Losing the startup race therefore costs the whole navigation
+  item until the page is reloaded — observed on 4.16, absent on first load and
+  present afterwards. `src/flags.ts` sets the flag through a
+  `console.flag/hookProvider` instead: the console mounts it via
+  `useResolvedExtensions` whenever the plugin arrives, and `useK8sModel` is a
+  live selector, so neither ordering matters.
 - **On 4.16–4.18 PatternFly is a module the console *shares* with plugins**, with
   a fallback allowed; from 4.19 it is not shared and the plugin bundles its own.
   So on the oldest generation the components that actually render may come from
