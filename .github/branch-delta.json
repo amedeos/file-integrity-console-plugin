@@ -25,5 +25,23 @@
       "src/components/NodeStatusOverviewPage.tsx",
       "src/components/ReinitActions.tsx"
     ]
+  },
+  "release-4.19": {
+    "covers": "OpenShift console 4.19 - 4.21",
+    "_note": [
+      "No components. This generation runs PatternFly 6, so every API the",
+      "components use exists with the same shape as on `main` and the markup",
+      "is identical — the expensive part of release-4.16 does not apply here.",
+      "If a component ever appears in this list, that is a claim worth",
+      "checking rather than a path worth adding."
+    ],
+    "paths": [
+      "package.json",
+      "yarn.lock",
+      "charts/file-integrity-console-plugin/Chart.yaml",
+      "src/lib/k8s.ts",
+      "src/lib/router.ts",
+      "src/lib/styles.ts"
+    ]
   }
 }

@@ -2393,6 +2393,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@patternfly/patternfly@npm:5.2.1":
+  version: 5.2.1
+  resolution: "@patternfly/patternfly@npm:5.2.1"
+  checksum: 10c0/8d3be363beee2547669bcfd1c2cf234378684fb0fdd91f7deeab29f99c4ef48bd3d21ebedd268c9be7ec6b33b66756f896e932356ec0fbd771b36e820618c4d8
+  languageName: node
+  linkType: hard
+
 "@patternfly/react-core@npm:~5.2.2":
   version: 5.2.3
   resolution: "@patternfly/react-core@npm:5.2.3"
@@ -6946,6 +6953,7 @@ __metadata:
     "@babel/preset-env": "npm:^7.29.7"
     "@openshift-console/dynamic-plugin-sdk": "npm:1.2.0"
     "@openshift-console/dynamic-plugin-sdk-webpack": "npm:1.1.0"
+    "@patternfly/patternfly": "npm:5.2.1"
     "@patternfly/react-core": "npm:~5.2.2"
     "@patternfly/react-icons": "npm:~5.2.1"
     "@patternfly/react-table": "npm:~5.2.2"
