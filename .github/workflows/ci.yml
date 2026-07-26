@@ -378,13 +378,22 @@ jobs:
       # Rendering with --set only ever produced strings, which is how a default
       # of 1048576 reached a cluster as "1.048576e+06" and crash-looped the pod:
       # Helm parses YAML numbers as float64. These render the *defaults*.
+      #
+      # The tunable settings are environment variables rather than flags — a
+      # Subscription can override a container's env but not its args, so as
+      # flags they were unreachable from an OperatorHub install. The float64
+      # trap is unchanged by that: a value is a value wherever it is written.
       - name: Render with defaults
         run: |
           helm template ci charts/file-integrity-console-plugin \
             --namespace openshift-file-integrity \
             --set plugin.image=example.io/plugin:ci > /tmp/defaults.yaml
-          grep -q -- '--max-file-bytes=1048576' /tmp/defaults.yaml
-          ! grep -qE -- '--[a-z-]+=[0-9]+\.[0-9]+e\+[0-9]+' /tmp/defaults.yaml
+          grep -q -- 'value: "1048576"' /tmp/defaults.yaml
+          # Comments are stripped first. The template carries a comment naming
+          # 1.048576e+06 as the thing to avoid, and scanning the whole render
+          # fails the build over its own warning — the same way the PatternFly
+          # style check once failed over the prose beside the dead class.
+          ! grep -vE '^\s*#' /tmp/defaults.yaml | grep -qE '[0-9]+\.[0-9]+e\+[0-9]+'
 
       - name: Render with file retrieve enabled
         run: |
@@ -394,10 +403,35 @@ jobs:
             --set backend.features.fileRetrieve=true \
             --set 'backend.extraDenyList={/etc/example/**}' \
             --set backend.maxFileBytes=2097152 > /tmp/retrieve.yaml
-          grep -q -- '--max-file-bytes=2097152' /tmp/retrieve.yaml
-          grep -q -- '--enable-file-retrieve=true' /tmp/retrieve.yaml
+          grep -q -- 'value: "2097152"' /tmp/retrieve.yaml
+          grep -A 1 PLUGIN_ENABLE_FILE_RETRIEVE /tmp/retrieve.yaml | grep -q 'value: "true"'
           grep -q 'authorization: UserToken' /tmp/retrieve.yaml
           grep -q 'extra-deny-list.txt' /tmp/retrieve.yaml
+
+      # Every setting the values file exposes has to actually reach the
+      # container, and the environment is now the only route for most of them.
+      # A value renamed in the template and not in the binary — or the other way
+      # round — leaves an installation silently running the default.
+      - name: Tunable settings reach the container as environment
+        run: |
+          helm template ci charts/file-integrity-console-plugin \
+            --namespace openshift-file-integrity \
+            --set plugin.image=example.io/plugin:ci > /tmp/env.yaml
+          for name in PLUGIN_FIO_NAMESPACE PLUGIN_MAX_FILE_BYTES PLUGIN_ENABLE_FILE_RETRIEVE; do
+            grep -q "name: $name" /tmp/env.yaml || {
+              echo "$name is not rendered; an OLM install cannot reach that setting"
+              exit 1
+            }
+            # The env name is the flag name mechanically transformed, so the
+            # flag it claims to configure has to exist. Otherwise the chart
+            # renders a variable the binary reads nothing from, and the
+            # installation runs the default while appearing configured.
+            flag=$(echo "${name#PLUGIN_}" | tr 'A-Z_' 'a-z-')
+            grep -q "\"$flag\"" backend/cmd/server/main.go || {
+              echo "$name maps to --$flag, which the binary does not define"
+              exit 1
+            }
+          done
 
       # The backend's ServiceAccount is deliberately bound to no role at all;
       # everything it does runs as the calling user. A rule appearing here is a

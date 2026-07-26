@@ -21,6 +21,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -51,17 +52,81 @@ type server struct {
 	log     *slog.Logger
 }
 
+// Every setting can be given as a flag or as an environment variable, and the
+// variable is only the flag's default, so a flag on the command line still wins.
+//
+// The environment is not a convenience here, it is the only channel an OLM
+// install has. A Subscription can override a container's env
+// (`spec.config.env`, merged by name — newer wins) and can mount volumes, but
+// it cannot touch the container's args: those come from the CSV, and editing
+// the CSV is editing something OLM owns and reconciles. So a plugin installed
+// from OperatorHub could not be configured at all while these were flags only —
+// most visibly, file retrieve could never be turned on, and the interface told
+// the administrator to go and change Helm values that do not exist on that
+// path.
+//
+// The chart therefore passes the tunable settings as env and the structural
+// ones as flags. Flags keep working unchanged, which is what the two-container
+// test recipe in AGENTS.md relies on.
+//
+// The mapping is mechanical — upper-case the flag, hyphens to underscores,
+// prefix — so a name can always be derived rather than looked up. The prefix is
+// PLUGIN_ rather than FIO_ only because `--fio-namespace` would otherwise
+// become FIO_FIO_NAMESPACE, which reads like a typo and would be copied as one.
+const envPrefix = "PLUGIN_"
+
+func envName(flagName string) string {
+	return envPrefix + strings.ToUpper(strings.ReplaceAll(flagName, "-", "_"))
+}
+
+func envString(flagName, fallback string) string {
+	if v, ok := os.LookupEnv(envName(flagName)); ok {
+		return v
+	}
+	return fallback
+}
+
+// A malformed value is fatal rather than ignored. Silently falling back to the
+// default would mean an administrator who wrote `PLUGIN_ENABLE_FILE_RETRIEVE=yes`
+// gets a running pod that does not do what they asked, and nothing anywhere
+// says so.
+func envBool(flagName string, fallback bool) bool {
+	v, ok := os.LookupEnv(envName(flagName))
+	if !ok {
+		return fallback
+	}
+	parsed, err := strconv.ParseBool(v)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s=%q is not a boolean\n", envName(flagName), v)
+		os.Exit(2)
+	}
+	return parsed
+}
+
+func envInt64(flagName string, fallback int64) int64 {
+	v, ok := os.LookupEnv(envName(flagName))
+	if !ok {
+		return fallback
+	}
+	parsed, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s=%q is not an integer\n", envName(flagName), v)
+		os.Exit(2)
+	}
+	return parsed
+}
+
 func main() {
 	var cfg config
-	flag.StringVar(&cfg.listen, "listen", ":9443", "address to listen on")
-	flag.StringVar(&cfg.certFile, "tls-cert-file", "/var/cert/tls.crt", "TLS certificate; serve plain HTTP if empty")
-	flag.StringVar(&cfg.keyFile, "tls-key-file", "/var/cert/tls.key", "TLS private key")
-	flag.StringVar(&cfg.staticDir, "static-dir", "/opt/app-root/web", "directory holding the built plugin assets")
-	flag.StringVar(&cfg.namespace, "fio-namespace", "openshift-file-integrity", "namespace the File Integrity Operator runs in")
-	flag.Int64Var(&cfg.maxBytes, "max-file-bytes", 1<<20, "maximum number of bytes to read from a node file")
-	flag.StringVar(&cfg.denyFile, "deny-list-file", "", "file with one deny glob per line, replacing the built-in defaults")
-	flag.StringVar(&cfg.extraDenyFile, "extra-deny-list-file", "", "file with one deny glob per line, added to whichever list is in effect")
-	flag.BoolVar(&cfg.enableRetrieve, "enable-file-retrieve", false, "enable reading files from nodes")
+	flag.StringVar(&cfg.listen, "listen", envString("listen", ":9443"), "address to listen on")
+	flag.StringVar(&cfg.certFile, "tls-cert-file", envString("tls-cert-file", "/var/cert/tls.crt"), "TLS certificate; serve plain HTTP if empty")
+	flag.StringVar(&cfg.keyFile, "tls-key-file", envString("tls-key-file", "/var/cert/tls.key"), "TLS private key")
+	flag.StringVar(&cfg.staticDir, "static-dir", envString("static-dir", "/opt/app-root/web"), "directory holding the built plugin assets")
+	flag.StringVar(&cfg.namespace, "fio-namespace", envString("fio-namespace", "openshift-file-integrity"), "namespace the File Integrity Operator runs in")
+	flag.Int64Var(&cfg.maxBytes, "max-file-bytes", envInt64("max-file-bytes", 1<<20), "maximum number of bytes to read from a node file")
+	flag.StringVar(&cfg.denyFile, "deny-list-file", envString("deny-list-file", ""), "file with one deny glob per line, replacing the built-in defaults")
+	flag.StringVar(&cfg.extraDenyFile, "extra-deny-list-file", envString("extra-deny-list-file", ""), "file with one deny glob per line, added to whichever list is in effect")
+	flag.BoolVar(&cfg.enableRetrieve, "enable-file-retrieve", envBool("enable-file-retrieve", false), "enable reading files from nodes")
 	flag.Parse()
 
 	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
