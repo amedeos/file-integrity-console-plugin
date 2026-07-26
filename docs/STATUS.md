@@ -294,11 +294,76 @@ in the binary, so nobody inherits it; forcing it off further would mean a semant
 instead of testing it. The historical failure mode was silent, and only the byte comparison
 catches that — never a default.
 
-**Next:** push `fix/props-with-children-type-arg` and `release-4.16`, run that browser check, add
-the README table mapping console version to image tag, and teach CI to assert the branch delta —
-`git diff --name-only origin/main HEAD` should contain nothing outside the declared set, so a fix
-landing on `main` turns the release branch red instead of quietly failing to arrive. Then
-`release-4.19`.
+### Verified in a browser, on a real 4.16 console
+
+The two-container recipe in `AGENTS.md`, `origin-console:4.16` against the 4.22 lab's data. The
+gate accepts the build, the plugin loads and enables, the navigation item appears, the overview and
+a node's report render, and the parameters reach the page. Two defects came out of it, both fixed:
+
+- **The feature flag was a race the plugin lost.** `console.flag/model` is evaluated only when API
+  discovery completes; a plugin registering afterwards adds its model to the console's map and
+  nothing re-reads it — `frontend/public/reducers/features.ts` carries a `TODO(vojtech)` beside
+  that code, and 4.22 fixed it with an `UpdateModelFlags` action. Discovery does not run again
+  either: for a caller allowed to watch CRDs it runs once at startup. `src/flags.ts` now sets the
+  flag from a `console.flag/hookProvider`, which the console mounts through `useResolvedExtensions`
+  whenever the plugin arrives, with `useK8sModel` as a live selector. One mechanism on all three
+  generations.
+- **The router shim named the wrong package.** 4.16 runs `react-router-dom` 5.3, but
+  `app-contents.tsx` builds plugin page routes with `Route`/`Routes` from
+  `react-router-dom-v5-compat`, so components are mounted in the v6 context. Both contexts exist —
+  `CompatRouter` nested inside the v5 router — so reading the wrong one returns `{}` rather than
+  throwing, and every node report claimed the node had been removed, naming it as the empty string.
+
+**Still not seen:** the file-content modal's successful state. Local bridge serves no plugin proxy
+unless `BRIDGE_PLUGIN_PROXY` is configured, and even with it the backend needs the in-cluster
+environment `rest.InClusterConfig()` reads. It closes on a 4.16 cluster, together with the SPDY
+path.
+
+## The branch-delta check — 26 July 2026
+
+`AGENTS.md` had said since the strategy was written that CI *should* assert the release branch
+delta; now it does. `.github/branch-delta.json` on `main` declares what each branch may differ in,
+and the `branch-delta` job fails on anything outside it. Two deliberate consequences: a fix landing
+on `main` turns the release branch red until it is merged forward, and a release branch with no
+entry is refused rather than waved through. A nightly sweep covers the case nobody touches the
+branch for weeks, which is the only way that drift would ever be noticed.
+
+Pushes to release branches now trigger CI at all, which they did not — merging a pull request into
+one is a push, and the tip Quay builds from was never checked as a whole.
+
+## Where to pick up — 26 July 2026
+
+Everything is on `origin`; no branch holds anything unpushed. `main` is at #19, `release-4.16` at
+#20 and contains `main`.
+
+**Next is `release-4.19`, and the plan is already researched.** The middle generation was expected
+to be the awkward one; it is the cheapest. Checked against the published packages and the console
+source, not inferred:
+
+- consoles 4.19, 4.20 and 4.21 all load `@patternfly/patternfly` ^6.2.3, run React 17, and mount
+  plugin routes through `react-router-dom-v5-compat` exactly as 4.16 does;
+- the 4.19 webpack plugin still emits `loadPluginEntry`, so the SDK pin is load-bearing here too;
+- the 4.19 SDK exports `k8sGet`/`k8sPatch` and supports `console.flag/hookProvider`;
+- **every PatternFly API the components use exists in 6.2.3 with the same shape**, so there is no
+  markup port. The delta is six paths, already declared in `.github/branch-delta.json`: the
+  dependency pins, the lockfile, the chart's two version fields, and the three shims — of which
+  only `src/lib/router.ts` actually changes.
+
+Concretely: push `release-4.19` as a pointer at `main` (that is the branch creation, nothing to
+review), then one pull request into it with the pins — SDK `4.19-latest`, PatternFly `~6.2.3`
+including `@patternfly/patternfly`, React 17 with the `@types/react` resolutions,
+`react-router-dom-v5-compat`, `react-i18next` ^11.12.0, `@testing-library/react` ^12.1.5,
+`@console/pluginAPI` `>=4.19.0-0 <4.22.0-0`, version `0.1.0-ocp4.19`. **Do not pin webpack**: the
+4.19 plugin depends on `^5.75.0`, which `main`'s `^5.107.2` already satisfies, so the exact pin
+that `release-4.16` needs has no reason to exist here.
+
+Verify in the browser with `origin-console:4.19` and `BRIDGE_RELEASE_VERSION=4.19.38` — the current
+stable-4.19 z-stream, looked up rather than invented.
+
+**Then the small debts:** `terser-webpack-plugin` is used by `webpack.config.ts` but resolved only
+transitively; and the lab cluster still has the internal registry on `emptyDir`, the BuildConfig,
+the ImageStream, the `fio-curl` pod and the `fio-viewer` ServiceAccount, none of them needed now
+that the image comes from Quay.
 
 ## Environment notes
 
@@ -312,4 +377,10 @@ landing on `main` turns the release branch red instead of quietly failing to arr
   time. The same goes for `helm`, also absent (`oc` and `kubectl` are present).
 - `yarn` is not on the PATH: use the committed binary,
   `node .yarn/releases/yarn-4.14.1.cjs <cmd>`.
+- `/home/agent` is a 1 GB tmpfs and the yarn cache lives under it, so an install eventually fails
+  with `ENOSPC` while copying into `~/.yarn/berry/cache`. Relocate it with environment variables
+  rather than editing `.yarnrc.yml`, which is committed:
+  ```sh
+  export YARN_GLOBAL_FOLDER=/var/tmp/yarn YARN_CACHE_FOLDER=/var/tmp/yarn/cache TMPDIR=/var/tmp
+  ```
 - The lab cluster token is supplied by the user in chat; it is not stored in the repository.
