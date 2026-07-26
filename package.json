@@ -82,7 +82,8 @@
     "description": "Node-by-node view of Red Hat File Integrity Operator (AIDE) scan results.",
     "exposedModules": {
       "NodeStatusOverviewPage": "./components/NodeStatusOverviewPage",
-      "NodeReportPage": "./components/NodeReportPage"
+      "NodeReportPage": "./components/NodeReportPage",
+      "flags": "./flags"
     },
     "dependencies": {
       "@console/pluginAPI": ">=4.22.0-0"

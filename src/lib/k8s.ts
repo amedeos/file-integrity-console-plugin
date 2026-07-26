@@ -17,6 +17,7 @@
 export {
   k8sGet,
   k8sPatch,
+  useK8sModel,
   useK8sWatchResource,
   Timestamp,
 } from '@openshift-console/dynamic-plugin-sdk';
