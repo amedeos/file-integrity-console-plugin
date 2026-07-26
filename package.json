@@ -58,6 +58,7 @@
     "jest": "^30.4.2",
     "jest-environment-jsdom": "^30.4.1",
     "jest-junit": "^17.0.0",
+    "js-yaml": "^4.1.0",
     "pluralize": "^8.0.0",
     "prettier": "^3.8.3",
     "prettier-stylelint": "^0.4.2",
