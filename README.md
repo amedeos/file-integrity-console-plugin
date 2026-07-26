@@ -38,6 +38,38 @@ Support for earlier consoles therefore has to be a build of its own, against
 that generation's SDK, on its own branch — see
 [AGENTS.md](AGENTS.md#supporting-more-than-one-console-generation).
 
+| Console | Branch | Image tag |
+|---|---|---|
+| 4.22 and later | `main` | `latest`, `X.Y.Z` |
+| 4.16 – 4.18 | `release-4.16` | `release-4.16`, `X.Y.Z-ocp4.16` |
+
+4.19 – 4.21 is a third generation and is not built yet; those consoles skip both
+builds rather than loading the wrong one.
+
+### File retrieve on 4.16 – 4.18 is not verified yet
+
+The optional file-retrieve feature is off by default everywhere, and on those
+consoles it should stay off until someone has checked it against a real cluster
+of that generation.
+
+Not because it is expected to fail — because it runs different code there.
+OpenShift 4.16 is Kubernetes 1.29, before the WebSocket exec subprotocol was on
+by default, so the backend's WebSocket attempt fails at negotiation and every
+read falls back to SPDY. On 4.22 the WebSocket attempt succeeds and that
+fallback never runs, so the path that is the *only* path on the older
+generation is the one with no field use behind it.
+
+It is also where this project's worst defect lived: a fallback that re-ran the
+command into the buffer of the attempt it was replacing returned the file's
+contents **duplicated**, with a `sha256` of the doubled bytes — a wrong answer
+that looks entirely plausible. That has been fixed structurally, and the 4.16
+case is the clean one in theory: the upgrade fails before a single byte is
+streamed. "In theory" is what was said the first time.
+
+So the first check on a 4.16 cluster is not the interface. Read a file through
+the plugin, read the same file on the node, and compare the byte count and the
+`sha256`. If they agree, the fallback is sound.
+
 ## What it does
 
 - **Overview** — every `FileIntegrityNodeStatus` in the cluster, its phase and

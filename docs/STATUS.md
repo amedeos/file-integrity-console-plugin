@@ -279,6 +279,21 @@ has built the `release-4.16` tag, the two-container recipe in `AGENTS.md` covers
 second cluster — with `BRIDGE_RELEASE_VERSION=4.16.55`, which is what makes the version gate
 evaluate at all.
 
+**The first thing to check on a 4.16 cluster is the SPDY fallback, not the interface.** 4.16 is
+Kubernetes 1.29, before the WebSocket exec subprotocol was on by default, so `NewWebSocketExecutor`
+fails at negotiation and *every* file read goes through `NewSPDYExecutor`. On 4.22 the WebSocket
+attempt succeeds, so that branch never runs: the only path on the older generation is the one with
+no field use behind it — and it is where the duplicated-content defect lived. The fix is
+structural and the 4.16 case is the clean one on paper (the upgrade fails before any byte is
+streamed), which is exactly what was said the first time. Repeat the byte-count and `sha256`
+comparison against the file on the node before trusting it.
+
+Deliberately **not** disabled on the release branch. It is already off by default in the chart and
+in the binary, so nobody inherits it; forcing it off further would mean a semantic divergence in
+`charts/`, which is how three branches become three products, and it would hide the untested path
+instead of testing it. The historical failure mode was silent, and only the byte comparison
+catches that — never a default.
+
 **Next:** push `fix/props-with-children-type-arg` and `release-4.16`, run that browser check, add
 the README table mapping console version to image tag, and teach CI to assert the branch delta —
 `git diff --name-only origin/main HEAD` should contain nothing outside the declared set, so a fix
