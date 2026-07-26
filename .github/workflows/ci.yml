@@ -395,16 +395,32 @@ jobs:
           # style check once failed over the prose beside the dead class.
           ! grep -vE '^\s*#' /tmp/defaults.yaml | grep -qE '[0-9]+\.[0-9]+e\+[0-9]+'
 
-      - name: Render with file retrieve enabled
+      # File retrieve is on by default — it grants nobody anything, since every
+      # read runs as the calling user and is refused without their own
+      # `pods/exec`. Both positions are asserted, because the switch that has
+      # never been rendered in one of its states is the one that turns out not
+      # to work.
+      - name: The file-retrieve switch renders both ways
+        run: |
+          grep -A 1 PLUGIN_ENABLE_FILE_RETRIEVE /tmp/defaults.yaml | grep -q 'value: "true"'
+          helm template ci charts/file-integrity-console-plugin \
+            --namespace openshift-file-integrity \
+            --set plugin.image=example.io/plugin:ci \
+            --set backend.features.fileRetrieve=false > /tmp/off.yaml
+          grep -A 1 PLUGIN_ENABLE_FILE_RETRIEVE /tmp/off.yaml | grep -q 'value: "false"'
+          # The proxy is declared either way. Dropping it when the feature is
+          # off would make the console answer 404, which the UI can only report
+          # as "no scan pod on this node" — the wrong reason entirely.
+          grep -q 'authorization: UserToken' /tmp/off.yaml
+
+      - name: Render with the deny list and a raised limit
         run: |
           helm template ci charts/file-integrity-console-plugin \
             --namespace openshift-file-integrity \
             --set plugin.image=example.io/plugin:ci \
-            --set backend.features.fileRetrieve=true \
             --set 'backend.extraDenyList={/etc/example/**}' \
             --set backend.maxFileBytes=2097152 > /tmp/retrieve.yaml
           grep -q -- 'value: "2097152"' /tmp/retrieve.yaml
-          grep -A 1 PLUGIN_ENABLE_FILE_RETRIEVE /tmp/retrieve.yaml | grep -q 'value: "true"'
           grep -q 'authorization: UserToken' /tmp/retrieve.yaml
           grep -q 'extra-deny-list.txt' /tmp/retrieve.yaml
 

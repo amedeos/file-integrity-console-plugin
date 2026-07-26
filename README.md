@@ -51,9 +51,9 @@ half-way.
 
 ### File retrieve on 4.16 is not verified yet
 
-The optional file-retrieve feature is off by default everywhere, and on 4.16 it
-should stay off until someone has checked it against a real cluster of that
-version.
+File retrieve is on by default, and on 4.16 it should be turned off
+(`backend.features.fileRetrieve=false`) until someone has checked it against a
+real cluster of that version.
 
 Not because it is expected to fail — because it runs different code there, and
 **only** there. The API server's WebSocket exec subprotocol is behind
@@ -92,8 +92,10 @@ the plugin, read the same file on the node, and compare the byte count and the
 - **Re-init** — re-initialise the AIDE database for one node or for every
   currently failing node, behind a confirmation that says plainly that the
   currently reported changes stop being reported.
-- **File retrieve** (optional, off by default) — show the current contents of a
-  reported file, read from the node itself. See [Security model](#security-model).
+- **File retrieve** — show the current contents of a reported file, read from
+  the node itself. On by default, and gated by the browsing user's own
+  `pods/exec` rights rather than by this switch. See
+  [Security model](#security-model).
 
 The UI ships English and Italian locales.
 
@@ -142,9 +144,13 @@ that the plugin never lends its own authority to a caller:
 - Every attempt, allowed or denied, is written to the pod log as a structured
   audit record with user, node, path and outcome. See
   [Where the audit trail lives](#where-the-audit-trail-lives).
-- The whole feature is **off by default** (`backend.features.fileRetrieve`).
-  When off, the endpoint answers 501 and the backend does not even build a
-  Kubernetes client.
+- The whole feature can be switched off (`backend.features.fileRetrieve`), and
+  then the endpoint answers 501 and the backend does not even build a Kubernetes
+  client. It is **on by default**, because switching it off takes nothing away
+  from anyone: every read already runs as the browsing user, is refused unless
+  they hold `pods/exec` in the scan namespace, and is recorded against their
+  name. Off means the path does not exist at all — worth choosing where that
+  matters, and not the state most installations want.
 
 ### Where the audit trail lives
 
@@ -309,10 +315,10 @@ helm install file-integrity-console-plugin charts/file-integrity-console-plugin 
   --set plugin.image=quay.io/asalvati/file-integrity-console-plugin:0.1.0
 ```
 
-To also enable reading files from nodes:
+To switch off reading files from nodes:
 
 ```sh
-  --set backend.features.fileRetrieve=true
+  --set backend.features.fileRetrieve=false
 ```
 
 The chart renders that, and every other tunable setting, as an environment
@@ -360,7 +366,7 @@ rollout reports success while running the previous binary.
 | `plugin.replicas` | `2` | |
 | `plugin.name` | chart name | ConsolePlugin name. It is baked into the frontend's proxy URL (`PLUGIN_NAME` in `src/constants.ts`); changing one without the other breaks file retrieve. |
 | `backend.fileIntegrityNamespace` | `openshift-file-integrity` | Where the operator runs its scans. |
-| `backend.features.fileRetrieve` | `false` | Enables reading files from nodes. |
+| `backend.features.fileRetrieve` | `true` | Reading files from nodes. Set to `false` to make the endpoint answer 501 and skip building a Kubernetes client at all; it grants nothing on its own, since every read runs as the calling user. |
 | `backend.maxFileBytes` | `1048576` | Bytes returned before the response is flagged truncated. |
 | `backend.denyList` | `[]` | **Replaces** the built-in deny globs. |
 | `backend.extraDenyList` | `[]` | **Adds** to whichever list is in effect — the safe way to harden, since a copied default list goes stale. |

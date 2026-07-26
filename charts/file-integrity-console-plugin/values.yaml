@@ -71,11 +71,22 @@ backend:
 
   features:
     # Reading a file off a node means exec'ing into the privileged AIDE pod,
-    # which bind-mounts the node root. Off by default: an installation has to
-    # decide it wants that, rather than inherit it. When off, the endpoint
-    # answers 501 with a message the UI shows as "feature disabled", and the
+    # which bind-mounts the node root — so this reads like a switch that grants
+    # something. It does not. Every read is made with the browsing user's own
+    # token: the backend checks their `pods/exec` rights in the scan namespace
+    # with SelfSubjectAccessReview, refuses the deny-listed paths whoever asks,
+    # and the kube-apiserver audit log records the exec against their name.
+    # Turning it off does not take a permission away from anyone; it only makes
+    # the endpoint answer 501 to people who were already entitled to the answer.
+    #
+    # On by default for that reason: a node report that shows a file changed and
+    # cannot show what it now contains is half a feature, and the half that is
+    # missing is the one an administrator opens the page for.
+    #
+    # Set it to false where the path should not exist at all. Then the endpoint
+    # answers 501 with a message the UI renders as "feature disabled", and the
     # backend never even builds a Kubernetes client.
-    fileRetrieve: false
+    fileRetrieve: true
 
   # Largest amount of bytes returned from a node file. Anything beyond is cut
   # and the response is flagged truncated.

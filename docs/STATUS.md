@@ -46,6 +46,19 @@ re-derive them) and the verification procedure. Read it before picking the work 
 - **An `--extra-deny-list-file` flag was added** to the backend so that values can *add* patterns
   to the deny list without copying the defaults (a copy of the defaults goes stale and ends up
   permitting what a newer default would deny).
+- **`features.fileRetrieve` defaults to `true`**, where the plan said `false` — "whoever does not
+  want it does not expose the endpoint". Reversed on 26 July 2026 because the premise does not
+  hold: the switch grants nobody anything. Every read runs as the browsing user, is refused unless
+  they hold `pods/exec` in the scan namespace, obeys the deny list whoever asks, and is recorded
+  against their name in the API server's audit log. Off did not withhold a capability, it withheld
+  an answer from people already entitled to it — and left a node report that says a file changed
+  but cannot show what it now contains, which is the half of the feature an administrator opens
+  the page for. `false` remains available and remains meaningful: it makes the path not exist at
+  all, which is the right choice on 4.16 until the SPDY fallback has been exercised.
+  The *binary's* default stays `false`, and the asymmetry is deliberate — see the comment on the
+  flag in `backend/cmd/server/main.go`. It applies only when nothing sets the value, which in
+  practice means running outside a cluster, where enabling the feature makes startup reach for
+  `rest.InClusterConfig()` and the process exit instead of serving its assets.
 - **No k8s `Event` for the audit trail** (plan item 5.8): the structured log is all there is.
   Creating the Event with the caller's token fails precisely for the users who matter — someone
   denied `pods/exec` is usually denied `create events` too, and a request with no token has no
@@ -288,8 +301,8 @@ structural and the 4.16 case is the clean one on paper (the upgrade fails before
 streamed), which is exactly what was said the first time. Repeat the byte-count and `sha256`
 comparison against the file on the node before trusting it.
 
-Deliberately **not** disabled on the release branch. It is already off by default in the chart and
-in the binary, so nobody inherits it; forcing it off further would mean a semantic divergence in
+Deliberately **not** disabled on the release branch by a change of its own. Forcing it off there
+would mean a semantic divergence in
 `charts/`, which is how three branches become three products, and it would hide the untested path
 instead of testing it. The historical failure mode was silent, and only the byte comparison
 catches that — never a default.

@@ -126,6 +126,14 @@ func main() {
 	flag.Int64Var(&cfg.maxBytes, "max-file-bytes", envInt64("max-file-bytes", 1<<20), "maximum number of bytes to read from a node file")
 	flag.StringVar(&cfg.denyFile, "deny-list-file", envString("deny-list-file", ""), "file with one deny glob per line, replacing the built-in defaults")
 	flag.StringVar(&cfg.extraDenyFile, "extra-deny-list-file", envString("extra-deny-list-file", ""), "file with one deny glob per line, added to whichever list is in effect")
+	// False here while the chart's value is true, and the difference is
+	// deliberate. This default only applies when nothing sets it — which in
+	// practice means the binary running outside a cluster, as in the
+	// two-container console test in AGENTS.md. Enabling the feature makes the
+	// process build a Kubernetes client at startup, and rest.InClusterConfig()
+	// has nothing to read there, so the container would exit instead of serving
+	// the assets it was started for. An installation always says what it wants;
+	// a bare run cannot, and the answer that still works is off.
 	flag.BoolVar(&cfg.enableRetrieve, "enable-file-retrieve", envBool("enable-file-retrieve", false), "enable reading files from nodes")
 	flag.Parse()
 

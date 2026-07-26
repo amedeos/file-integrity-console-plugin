@@ -80,13 +80,17 @@ spec:
 
     ## Reading files from nodes
 
-    One optional feature reads the current contents of a file from a node, so a
-    reported change can be looked at. It is **off by default** and has to be
-    enabled deliberately, because it means running a command in the privileged
-    AIDE pod. When off, the endpoint answers `501` and the backend builds no
-    Kubernetes client at all. A deny list — refusing keys, certificates, shadow
+    One feature reads the current contents of a file from a node, so a reported
+    change can be looked at. It reads as though it grants something, and it does
+    not: the read runs as the browsing user, is refused unless they hold
+    `pods/exec` in the scan namespace, and is recorded against their name in the
+    API server's audit log. A deny list — refusing keys, certificates, shadow
     files and the static pod resources — is checked before the caller is even
     authenticated, so probing it costs nothing and is attributed to no session.
+
+    It can be switched off, and then the endpoint answers `501` and the backend
+    builds no Kubernetes client at all. Set `PLUGIN_ENABLE_FILE_RETRIEVE` to
+    `false` through the Subscription to do that.
 
     [fio]: https://github.com/openshift/file-integrity-operator
 
