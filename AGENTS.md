@@ -158,9 +158,25 @@ Two things this buys that a cluster does not:
   the old SDK's peer range has no upper bound. Keep `tsconfig.json` identical
   everywhere.
 - The SDK's function names differ, opposite to the obvious guess: **4.22 exports
-  only `k8sGet` / `k8sPatch`**, while 4.16 and 4.19 export `k8sGetResource` /
-  `k8sPatchResource`. `src/lib/k8s.ts` keeps the 4.22 spelling as this plugin's
-  vocabulary; older branches alias to it.
+  only `k8sGet` / `k8sPatch`**. Older SDKs export `k8sGetResource` /
+  `k8sPatchResource` *and* the short aliases — verified in 1.2.0 — so
+  `src/lib/k8s.ts` is byte-identical on every branch even though it is one of
+  the three files allowed to differ. Use the short spelling and leave it alone.
+- **PatternFly pins to the floor of the branch's range, not to the template's
+  caret.** The plugin ships no CSS of its own, so every class name it emits has
+  to exist in the stylesheet the *console* loaded: `@patternfly/patternfly`
+  5.2.1 on 4.16 and 4.17, 5.4.0 on 4.18. `^5.1.1` resolves to 5.4 and would
+  emit names the two older consoles do not have.
+- **Check the `provide shared module` lines in the build output.** A transitive
+  dependency asking for a newer PatternFly gets its own nested copy, and that
+  copy — not the top-level one — is what webpack publishes as the shared
+  module. Nothing fails: the plugin simply advertises a version the console is
+  not serving. A `resolutions` entry collapses it, and the build output is the
+  only place the mismatch is visible.
+- **`@types/react` needs a `resolutions` entry on the React 17 branches.**
+  `@types/react-router` and `@types/react-router-dom` both depend on
+  `@types/react: "*"`, so each pulls its own copy of 19, under which `Link`
+  stops being usable as a JSX element.
 - **On 4.16–4.18 PatternFly is a module the console *shares* with plugins**, with
   a fallback allowed; from 4.19 it is not shared and the plugin bundles its own.
   So on the oldest generation the components that actually render may come from
@@ -172,6 +188,11 @@ Two things this buys that a cluster does not:
 **Paths that must never diverge between branches:** `backend/`, `charts/`,
 `Containerfile`, `.github/workflows/ci.yml`, `console-extensions.json`,
 `locales/`, `tsconfig.json`, and all of `src/lib/` except the three shims.
+
+The single exception is `Chart.yaml`'s `version` and `appVersion`, which carry
+the generation suffix on a release branch. They name the build the chart
+installs, which is per-generation by definition, and CI requires them to agree
+with `package.json`. Everything else under `charts/` is identical everywhere.
 Author changes to those on `main` and merge `main` forward into the release
 branches — never rebase a pushed branch, and never author the change on the
 branch. The first backend fix written directly on a release branch is where

@@ -229,22 +229,61 @@ is deliberate: ranges grow upward, so the name stays true as releases are added,
 4.18 who guesses wrong lands on `main` and gets a clean refusal rather than concluding their
 version is unsupported. The README needs a table mapping console version to image tag.
 
-**Next step, and the first thing that can fail:** `release-4.16` exists as a branch pointing at
-`main` with no commits of its own. The next move is the dependency pins — SDK 1.2.0 with
-**`ConsoleRemotePlugin` 1.1.0** (mandatory, not cosmetic: the 4.22 entry-registration contract is
-what fails on an older console), PatternFly `^5.1.1`, React 17, `react-router-dom` 5.3,
-`@testing-library/react` 12.x, webpack pinned to exactly `5.75.0`, and the closed `pluginAPI`
-range. If that set does not resolve, nothing after it matters.
-
-Then the PatternFly 5 port: `Content` → `TextContent`/`Text`, the Modal composition,
-`EmptyState` → `EmptyStateHeader`, and `src/lib/styles.ts` respelled. And the version carries the
-generation: `0.1.0-ocp4.16`.
-
 **Still standing on the lab cluster**, put there to get here and not yet removed: the internal
 registry re-enabled with `emptyDir`, the `file-integrity-console-plugin` BuildConfig and
 ImageStream, the `fio-curl` pod and the `fio-viewer` ServiceAccount with its RoleBinding. The
 plugin itself now runs from `quay.io/asalvati/file-integrity-console-plugin:latest`, so the
 in-cluster build path is no longer needed.
+
+## `release-4.16` — 26 July 2026
+
+The branch exists and is green: `tsc`, `eslint --max-warnings 0`, all 45 tests and a production
+`webpack` build all pass against the 4.16 dependency set. Two commits, plus one on `main` that it
+depends on.
+
+**The pin that mattered was confirmed, not assumed.** The remote entry that
+`ConsoleRemotePlugin` 1.1.0 emits calls `loadPluginEntry`; a 4.22 build emits
+`__load_plugin_entry__`, which is what was seen failing on a real 4.16 console. Checked directly
+in `dist/plugin-entry.*.min.js` rather than inferred from the version number.
+
+Four things the plan did not have right:
+
+- **`src/lib/k8s.ts` does not change.** SDK 1.2.0 already exports `k8sGet` and `k8sPatch` as
+  aliases of the long names, so the shim is byte-identical across branches. One fewer file in the
+  delta than expected.
+- **PatternFly pins to `~5.2.2`, not `^5.1.1`.** The plugin ships no CSS, so every class it emits
+  must exist in the stylesheet the console loaded — `@patternfly/patternfly` 5.2.1 on 4.16 and
+  4.17, 5.4.0 on 4.18. A caret range resolves to 5.4 and would emit names the two older consoles
+  do not have. The floor of the branch decides the pin, exactly as the floor decides its name.
+- **A resolution for `@patternfly/react-core` was needed.** `@patternfly/react-table` asks for
+  `^5.2.3`, and yarn answered with a nested 5.4.14 — and *that copy*, not the top-level one, was
+  what webpack published as the shared module. Visible only in the build output's
+  `provide shared module` line: the plugin was advertising 5.4.14 to a console serving 5.2.
+- **`@types/react` and `@types/react-dom` need resolutions too.** `@types/react-router` and
+  `@types/react-router-dom` each depend on `@types/react: "*"` and pulled their own copy of 19,
+  under which `Link` stops being usable as a JSX element in React 17.
+
+`src/lib/router.ts` now wraps `useParams` rather than re-exporting it: v5 types parameters as
+present and v7 as possibly undefined, so a bare re-export makes the same component code correct on
+one generation and wrong on the other. The shim narrows both to the weaker type — which is the
+kind of difference it exists to hold.
+
+`charts/` gains its **one intentional divergence**: `version` and `appVersion` carry the
+generation, `0.1.0-ocp4.16`. They name the build the chart installs, which is per-generation by
+definition, and CI requires them to agree with `package.json`.
+
+**Not yet verified, and only a browser can:** that the page actually renders correctly against a
+4.16 console. `tsc` and 45 passing tests say nothing about markup that PatternFly 5 lays out
+differently, and jsdom measures every element as zero-sized. Once the branch is pushed and Quay
+has built the `release-4.16` tag, the two-container recipe in `AGENTS.md` covers it without a
+second cluster — with `BRIDGE_RELEASE_VERSION=4.16.55`, which is what makes the version gate
+evaluate at all.
+
+**Next:** push `fix/props-with-children-type-arg` and `release-4.16`, run that browser check, add
+the README table mapping console version to image tag, and teach CI to assert the branch delta —
+`git diff --name-only origin/main HEAD` should contain nothing outside the declared set, so a fix
+landing on `main` turns the release branch red instead of quietly failing to arrive. Then
+`release-4.19`.
 
 ## Environment notes
 
