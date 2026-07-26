@@ -483,6 +483,15 @@ lab cluster:
   step on this path.
 - Navigation entry present and the node reports rendering — the plugin works, installed this way.
 
+And a fourth defect, found by using the plugin rather than by installing it: **"View file" answered
+"Feature disabled … enable it in the plugin Helm values"**, on a cluster with no Helm values. That
+was the visible half. The invisible half was worse — every setting arrived as a command-line flag,
+and an OLM install cannot change a container's args: they come from the CSV. So file retrieve was
+not merely off, it was **unreachable**, and the same went for the deny lists and the byte limit. The
+chart now renders the tunable settings as environment variables, which a Subscription *can* override
+(`spec.config.env`, merged by name), and the binary reads each as the default for the matching flag
+so nothing that passed flags before has changed.
+
 Still unverified: the other two generations' bundles have been generated and validated but never
 installed, there being no 4.16 or 4.19 cluster; and nothing has been submitted anywhere.
 

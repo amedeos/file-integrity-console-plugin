@@ -258,6 +258,31 @@ The console restarts itself once the plugin is enabled, so the manifest-cache
 problem described under [Upgrading to a new build](#upgrading-to-a-new-build)
 does not arise on this path.
 
+**Configuring it afterwards** goes through the Subscription, not through Helm
+values, which do not exist here. A Subscription can override the container's
+environment by name, and every setting the chart exposes is read from the
+environment for exactly that reason — so to turn on reading files from nodes:
+
+```sh
+oc patch subscription file-integrity-console-plugin \
+  -n openshift-file-integrity --type=merge -p '
+spec:
+  config:
+    env:
+      - name: PLUGIN_ENABLE_FILE_RETRIEVE
+        value: "true"'
+```
+
+The names are the flags in [Values worth knowing](#values-worth-knowing),
+upper-cased with hyphens as underscores and a `PLUGIN_` prefix:
+`PLUGIN_MAX_FILE_BYTES`, `PLUGIN_FIO_NAMESPACE`, and so on. Read the security
+note under [File retrieve](#security-model) before enabling it — it is off by
+default deliberately, on both install paths.
+
+A Subscription can also mount volumes, which is how a deny list of your own
+reaches the pod: mount a ConfigMap and point `PLUGIN_EXTRA_DENY_LIST_FILE` at
+the file inside it.
+
 **Uninstalling leaves the `ConsolePlugin` behind.** It is cluster-scoped and OLM
 gives it no owner reference, so removing the operator does not remove it, and
 the console is left with a plugin name that resolves to nothing — it logs a
@@ -289,6 +314,13 @@ To also enable reading files from nodes:
 ```sh
   --set backend.features.fileRetrieve=true
 ```
+
+The chart renders that, and every other tunable setting, as an environment
+variable on the container rather than as a command-line flag. The binary reads
+each one as the default for the matching flag, so a flag still wins and nothing
+that passed flags before has changed. The reason is the OLM path: a Subscription
+can override a container's environment but not its arguments, so as flags these
+settings were unreachable from OperatorHub.
 
 The chart runs a post-install Job that adds the plugin to
 `consoles.operator.openshift.io/cluster`, and a pre-delete Job that removes it
