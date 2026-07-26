@@ -41,23 +41,33 @@ that generation's SDK, on its own branch — see
 | Console | Branch | Image tag |
 |---|---|---|
 | 4.22 and later | `main` | `latest`, `X.Y.Z` |
+| 4.19 – 4.21 | `release-4.19` | `release-4.19`, `X.Y.Z-ocp4.19` |
 | 4.16 – 4.18 | `release-4.16` | `release-4.16`, `X.Y.Z-ocp4.16` |
 
-4.19 – 4.21 is a third generation and is not built yet; those consoles skip both
-builds rather than loading the wrong one.
+A console outside every range loads none of them rather than loading the wrong
+one: each build declares a closed `@console/pluginAPI` range, so the mismatch is
+a clean refusal in the console's own plugin list instead of a page that renders
+half-way.
 
-### File retrieve on 4.16 – 4.18 is not verified yet
+### File retrieve on 4.16 is not verified yet
 
-The optional file-retrieve feature is off by default everywhere, and on those
-consoles it should stay off until someone has checked it against a real cluster
-of that generation.
+The optional file-retrieve feature is off by default everywhere, and on 4.16 it
+should stay off until someone has checked it against a real cluster of that
+version.
 
-Not because it is expected to fail — because it runs different code there.
-OpenShift 4.16 is Kubernetes 1.29, before the WebSocket exec subprotocol was on
-by default, so the backend's WebSocket attempt fails at negotiation and every
-read falls back to SPDY. On 4.22 the WebSocket attempt succeeds and that
-fallback never runs, so the path that is the *only* path on the older
-generation is the one with no field use behind it.
+Not because it is expected to fail — because it runs different code there, and
+**only** there. The API server's WebSocket exec subprotocol is behind
+`TranslateStreamCloseWebsocketRequests`, which is alpha and off in Kubernetes
+1.29 and beta and on from 1.30. OpenShift 4.16 is 1.29, so the backend's
+WebSocket attempt fails at negotiation and every read falls back to SPDY. 4.17
+is 1.30 and 4.19 is 1.32, so from 4.17 upwards the WebSocket attempt succeeds
+and the fallback never runs — the same path `main` takes.
+
+That narrows the gap rather than closing it: the SPDY fallback is the *only*
+path on 4.16 and has no field use behind it anywhere. Note also what this
+paragraph is and is not. The version mapping and the gate defaults were read
+from the Kubernetes and OpenShift sources; no read has been performed on a
+4.16, 4.17, 4.18 or 4.19 cluster.
 
 It is also where this project's worst defect lived: a fallback that re-ran the
 command into the buffer of the attempt it was replacing returned the file's
