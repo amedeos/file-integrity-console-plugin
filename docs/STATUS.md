@@ -495,6 +495,11 @@ lab cluster:
   cache that makes `oc rollout restart deployment/console` necessary after a `helm upgrade` is not a
   step on this path.
 - Navigation entry present and the node reports rendering — the plugin works, installed this way.
+- **File retrieve returning a file's contents through the console.** This is the first time that
+  path has been seen end to end: it had been exercised only with `curl` against the Service, and
+  the modal's successful state had never been rendered by anything — jsdom cannot, and every
+  earlier harness answered 404 or 501 before reaching it. Reached through the console proxy, with
+  the browsing user's own token, from a bundle installed by OLM.
 
 And a fourth defect, found by using the plugin rather than by installing it: **"View file" answered
 "Feature disabled … enable it in the plugin Helm values"**, on a cluster with no Helm values. That
@@ -520,15 +525,19 @@ the README has to say so.
 ## Where to pick up — 26 July 2026, later
 
 All three generations exist and are merged: `main`, `release-4.19` (#23), `release-4.16` (#22). The
-OLM bundle is on `feat/olm-bundle`, **installed and working on the lab cluster**, and the pull
-request is deliberately still open — the three defects above were each found after it was pushed.
+OLM bundle is on `feat/olm-bundle`, ten commits, **pushed, installed and working end to end on the
+lab cluster** — file retrieve included. The pull request was deliberately held open, and every
+defect above was found after the branch was first pushed, which is the argument for holding it.
 
 **Next, in order:**
 
-1. **Merge the bundle pull request.** CI has to be green on the `bundle` job, which generates and
-   validates on a clean machine rather than on one where `helm` and `operator-sdk` were fetched by
-   hand. Merge with a merge commit; the commits carry distinct decisions. Then merge `main` forward
-   into both release branches.
+1. **Open and merge the bundle pull request** into `main`. Base `main`, merge commit — the commits
+   carry distinct decisions and squashing would lose them. CI has to be green on the `bundle` job
+   first: it generates and validates on a clean machine, rather than on one where `helm` and
+   `operator-sdk` were fetched by hand. Then merge `main` forward into both release branches; that
+   one will conflict in `src/components/FileContentModal.tsx`, which is in `release-4.16`'s
+   declared delta because of the PatternFly 5 markup. Keep the branch's markup and take the new
+   string.
 2. **Cut the tags.** `v0.1.0` on `main`, `v0.1.0-ocp4.19` and `v0.1.0-ocp4.16` on the release
    branches. No tag has ever been cut, and the README's install command already names `...:0.1.0` —
    a tag that does not exist. A bundle names an immutable image, so this comes before any
@@ -536,6 +545,13 @@ request is deliberately still open — the three defects above were each found a
 3. **Submit**, one pull request per bundle to `community-operators-prod`, starting with 4.22 alone:
    it is the generation that has been installed end to end, and the community CI is better learned
    on one bundle than on three.
+
+**Still on the lab cluster right now:** the plugin installed from the test catalogue
+(`fio-plugin-test` in `openshift-marketplace`), running
+`quay.io/asalvati/file-integrity-console-plugin:test`. Tear it down with `oc delete subscription`,
+`oc delete csv`, `oc delete consoleplugin file-integrity-console-plugin` — the last one is
+cluster-scoped and has no owner reference, so nothing else removes it — and `oc delete
+catalogsource fio-plugin-test -n openshift-marketplace`.
 
 **Left over:** on a real 4.16 cluster, the SPDY exec fallback — read a file through the plugin, read
 it on the node, compare byte count and `sha256` before looking at the interface. The lab leftovers
