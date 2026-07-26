@@ -254,6 +254,22 @@ carrying no rules, so unlike the chart install you will see two RBAC objects
 here. They permit nothing; the backend acts only as the user browsing the
 console.
 
+The console restarts itself once the plugin is enabled, so the manifest-cache
+problem described under [Upgrading to a new build](#upgrading-to-a-new-build)
+does not arise on this path.
+
+**Uninstalling leaves the `ConsolePlugin` behind.** It is cluster-scoped and OLM
+gives it no owner reference, so removing the operator does not remove it, and
+the console is left with a plugin name that resolves to nothing — it logs a
+failed load on every page view. The chart has a pre-delete Job for this; a
+bundle cannot, because `Job` is not a kind OLM accepts. Remove it by hand:
+
+```sh
+oc delete consoleplugin file-integrity-console-plugin
+oc patch consoles.operator.openshift.io cluster --type=json \
+  -p '[{"op":"remove","path":"/spec/plugins/0"}]'   # check the index first
+```
+
 [trusted]: https://github.com/openshift/console/blob/master/frontend/packages/operator-lifecycle-manager/src/utils.tsx
 
 ### Install the chart

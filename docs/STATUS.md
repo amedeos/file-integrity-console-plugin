@@ -441,45 +441,86 @@ catalogue each lands in.
   `operator-sdk bundle validate` rejects outright. Dropping it costs nothing and keeps the
   invariant: with no `permissions` in the CSV, the account OLM creates is bound to nothing.
 
-### Verified, and not
+### Three defects the cluster found and no validator could
 
-Verified locally, on all three generations: the generator runs, the three tables agree, and
-`operator-sdk bundle validate` passes the `operatorframework` suite plus the `community`,
-`good-practices`, `capabilities` and `categories` validators. The `multiarch` validator asked for
-`operatorframework.io/arch.amd64` and `operatorframework.io/os.linux`, which the CSV now carries —
-the README already said the image is linux/amd64 only, and now the bundle says it somewhere a
-cluster can act on.
+The bundle passed `operator-sdk bundle validate` — the `operatorframework` suite plus `community`,
+`good-practices`, `capabilities` and `categories` — before, between and after each of these. Every
+one took installing it from a real catalogue.
 
-**Not verified: anything on a cluster.** No bundle image has been built, no catalogue created, no
-install performed. Every claim above about what the install form does is read from the console's
-source. The whole point of the 4.16 and 4.19 work was that reading is not seeing, and this has not
-been seen yet.
+1. **The CSV declared only `AllNamespaces`, and the namespace it suggests refused it.**
+   `openshift-file-integrity` already carries an OperatorGroup with `targetNamespaces:
+   ["openshift-file-integrity"]`, created when the File Integrity Operator was installed — the very
+   reason the plugin wants to live there. "The OperatorGroup in the openshift-file-integrity
+   Namespace does not support the global installation mode."
+2. **Adding the other modes did not fix it.** The console does not pick a workable mode: it reduces
+   over the supported ones and prefers `AllNamespaces` whenever it is offered at all, then applies
+   the suggested namespace to that choice, rebuilding the impossible pair by default. Only
+   *withdrawing* the global mode changes the default. `OwnNamespace` alone is also the honest
+   answer — a global install would put the pod in `openshift-operators`, which is not the namespace
+   the ConsolePlugin names.
+3. **Dropping the ServiceAccount left the pod unschedulable.** `operator-sdk` rejects a
+   ServiceAccount in a bundle whose name matches one a deployment runs as, comparing against the
+   deployment alone whether or not anything is granted. That reads as "OLM will create it", and OLM
+   will not: it creates accounts from `permissions` and nothing else. So the deployment referenced
+   an account nobody made — "error looking up service account ... not found" — and the CSV sat in
+   `Installing`. The fix is a `permissions` entry with an empty rule list; see the invariant in
+   AGENTS.md, which no longer implies the chart and the bundle spell it the same way.
+
+### Seen on a real 4.22 console
+
+Installed from a one-bundle catalogue built with `opm`, against `:latest` rather than a tag, on the
+lab cluster:
+
+- **The install form offers the *Console plugin* control and defaults it to Disabled**, with the
+  untrusted-catalogue warning. Confirmed by hand, not inferred — it is the claim the README's
+  OperatorHub section opens with, and the reason it opens with it.
+- The operator installed into `openshift-file-integrity`; CSV `Succeeded`, deployment 2/2, the
+  service-serving certificate issued, and `/healthz` answering inside the pod.
+- **The invariant survives OLM.** A dedicated ServiceAccount, a Role and a RoleBinding whose rules
+  are empty, and no ClusterRole or ClusterRoleBinding anywhere.
+- **The console rolled itself.** Its pods were replaced when the plugin was enabled, so the manifest
+  cache that makes `oc rollout restart deployment/console` necessary after a `helm upgrade` is not a
+  step on this path.
+- Navigation entry present and the node reports rendering — the plugin works, installed this way.
+
+Still unverified: the other two generations' bundles have been generated and validated but never
+installed, there being no 4.16 or 4.19 cluster; and nothing has been submitted anywhere.
+
+### One limit worth knowing before publishing
+
+**The `ConsolePlugin` outlives the operator.** It is cluster-scoped and OLM gives it no
+ownerReference, so deleting the CSV leaves it behind — observed. Whoever uninstalls is left with a
+plugin name that resolves to nothing, and the console logs a failed load on every page view. The
+chart avoids this with a pre-delete Job; a bundle cannot, because `Job` is not a kind OLM accepts.
+Uninstalling therefore needs `oc delete consoleplugin file-integrity-console-plugin` by hand, and
+the README has to say so.
 
 ## Where to pick up — 26 July 2026, later
 
-All three generations exist and are merged: `main`, `release-4.19` (#23), `release-4.16` (#22).
-Each release branch contains `origin/main`; the `branch-delta` job is green on both.
+All three generations exist and are merged: `main`, `release-4.19` (#23), `release-4.16` (#22). The
+OLM bundle is on `feat/olm-bundle`, **installed and working on the lab cluster**, and the pull
+request is deliberately still open — the three defects above were each found after it was pushed.
 
 **Next, in order:**
 
-1. **Try the bundle on the lab cluster.** Build a bundle image and a one-bundle catalogue with
-   `opm`, apply a `CatalogSource`, install from OperatorHub, and watch: the *Console plugin* radio
-   appears, defaults to *Disabled*, and enabling it produces the menu entry. Then repeat leaving it
-   *Disabled*, to see exactly what a user who changes nothing gets — the README describes that, and
-   it should describe what was seen.
+1. **Merge the bundle pull request.** CI has to be green on the `bundle` job, which generates and
+   validates on a clean machine rather than on one where `helm` and `operator-sdk` were fetched by
+   hand. Merge with a merge commit; the commits carry distinct decisions. Then merge `main` forward
+   into both release branches.
 2. **Cut the tags.** `v0.1.0` on `main`, `v0.1.0-ocp4.19` and `v0.1.0-ocp4.16` on the release
-   branches. No tag has ever been cut, and the README's install command already names
-   `...:0.1.0` — a tag that does not exist. A bundle names an immutable image, so this comes before
-   any submission.
+   branches. No tag has ever been cut, and the README's install command already names `...:0.1.0` —
+   a tag that does not exist. A bundle names an immutable image, so this comes before any
+   submission, and the generator's `IfNotPresent`/`Always` choice depends on it too.
 3. **Submit**, one pull request per bundle to `community-operators-prod`, starting with 4.22 alone:
-   it is the generation we can test end to end, and the community CI is better learned on one
-   bundle than on three.
+   it is the generation that has been installed end to end, and the community CI is better learned
+   on one bundle than on three.
 
-**Left over:** the lab cluster still has the internal registry on `emptyDir`, the BuildConfig, the
-ImageStream, the `fio-curl` pod and the `fio-viewer` ServiceAccount and RoleBinding, all from
-before the image came from Quay. And on a real 4.16 cluster, the SPDY exec fallback — read a file
-through the plugin, read it on the node, compare byte count and `sha256` before looking at the
-interface.
+**Left over:** on a real 4.16 cluster, the SPDY exec fallback — read a file through the plugin, read
+it on the node, compare byte count and `sha256` before looking at the interface. The lab leftovers
+are gone: the internal registry's BuildConfig, ImageStream, builds, the `fio-curl` pod and the
+`fio-viewer` account were all removed on 26 July. The cluster's image registry itself is still
+`Managed` on `emptyDir`, deliberately untouched — 60 ImageStreams belonging to other work now
+depend on it, so turning it off is no longer a cleanup.
 
 ## Environment notes
 
