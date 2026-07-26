@@ -241,6 +241,71 @@ jobs:
           console.log(`${en.length} keys, en and it agree`);
           EOF
 
+      # src/lib/styles.ts is a table of strings that either match the stylesheet
+      # the console loaded or do nothing at all — nothing type-checks them, and
+      # a wrong one costs no error, no warning and no visible failure beyond a
+      # colour that never applies. `pf-v6-u-color-200` sat there for weeks
+      # exactly that way: a PatternFly 5 name carried across by a mechanical v5
+      # to v6 swap, matching nothing in either PatternFly 6 stylesheet.
+      #
+      # @patternfly/patternfly is a devDependency for this step alone. It is
+      # never imported and never bundled; it is pinned to the release the target
+      # console loads, so this compares the names against the exact stylesheet
+      # they have to survive. Each branch pins its own, which is what makes the
+      # check mean something on all three.
+      - name: Style names exist in the PatternFly stylesheet
+        run: |
+          node - <<'EOF'
+          const fs = require('fs');
+          const path = require('path');
+
+          // Only the quoted values, never the prose. The file's own comment
+          // names a dead class as its cautionary example, and scanning the
+          // whole text would fail the build over the warning about the bug.
+          const source = fs.readFileSync('src/lib/styles.ts', 'utf8');
+          const names = [
+            ...new Set(
+              (source.match(/'[^']*'/g) ?? []).flatMap(
+                (literal) =>
+                  literal.match(/pf-v\d+-[a-z0-9-]+|--pf-[a-z0-9-]+/g) ?? [],
+              ),
+            ),
+          ];
+          if (!names.length) {
+            console.error('No PatternFly names found in src/lib/styles.ts.');
+            process.exit(1);
+          }
+
+          // The utility classes live in patternfly-addons.css and the tokens in
+          // patternfly.css; the console loads both, so either file counts.
+          const root = path.dirname(
+            require.resolve('@patternfly/patternfly/package.json'),
+          );
+          const version = require(
+            path.join(root, 'package.json'),
+          ).version;
+          const css = ['patternfly.css', 'patternfly-addons.css']
+            .map((f) => fs.readFileSync(path.join(root, f), 'utf8'))
+            .join('\n');
+
+          const dead = names.filter((n) => !css.includes(n));
+          if (dead.length) {
+            console.error(
+              `These names are absent from @patternfly/patternfly ${version}:`,
+            );
+            dead.forEach((n) => console.error(`  ${n}`));
+            console.error(
+              '\nA name that matches nothing does not fail — it just never ' +
+                'applies. Check the spelling against the stylesheet rather ' +
+                'than against the previous major.',
+            );
+            process.exit(1);
+          }
+          console.log(
+            `${names.length} names, all present in @patternfly/patternfly ${version}`,
+          );
+          EOF
+
       # A git tag names the released image, and the plugin manifest carries a
       # version of its own that the console displays. If these drift, a release
       # tagged v0.1.1 ships an image announcing itself as something else.
