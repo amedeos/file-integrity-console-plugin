@@ -234,12 +234,18 @@ oc patch consoles.operator.openshift.io cluster --type=json \
   -p '[{"op":"add","path":"/spec/plugins/-","value":"file-integrity-console-plugin"}]'
 ```
 
-**Install it into `openshift-file-integrity`**, which the form suggests. The
-`ConsolePlugin` the bundle ships names that namespace literally — OLM fills
-nothing in inside a cluster-scoped manifest — so installing elsewhere leaves the
-console unable to fetch the plugin's assets. That failure is at least visible:
-the plugin is listed as failed under **Administration → Cluster Settings →
-Console plugins**.
+**Install it into `openshift-file-integrity`**, which the form pre-selects as
+*Operator recommended Namespace*. The `ConsolePlugin` the bundle ships names
+that namespace literally — OLM fills nothing in inside a cluster-scoped
+manifest — so installing elsewhere leaves the console unable to fetch the
+plugin's assets. That failure is at least visible: the plugin is listed as
+failed under **Administration → Cluster Settings → Console plugins**.
+
+The bundle offers only the single-namespace install mode, and that is why the
+form defaults the way it does. It is also the only mode that works: a global
+install would put the pod in `openshift-operators`, which is not the namespace
+the ConsolePlugin names. `openshift-file-integrity` is where the File Integrity
+Operator runs, and the plugin belongs beside the operator it reads.
 
 The bundle grants its ServiceAccount nothing, exactly as the chart does. OLM
 creates the account from the deployment and binds no role to it, because the CSV
