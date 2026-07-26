@@ -1,0 +1,29 @@
+{
+  "_comment": [
+    "What each release branch is allowed to differ from `main` in.",
+    "",
+    "This file lives on `main` and is merged forward unchanged, so the set of",
+    "paths a branch may diverge in is decided where the rule is written rather",
+    "than on the branch it constrains. Adding an entry is a design decision:",
+    "every path here is one more place two branches can become two products.",
+    "",
+    "A path may appear here and be identical anyway — src/lib/k8s.ts is one of",
+    "the three shims and so is permitted to differ, but no branch has needed to",
+    "change it. Listing it says what is allowed, not what is true today."
+  ],
+  "release-4.16": {
+    "covers": "OpenShift console 4.16 - 4.18",
+    "paths": [
+      "package.json",
+      "yarn.lock",
+      "charts/file-integrity-console-plugin/Chart.yaml",
+      "src/lib/k8s.ts",
+      "src/lib/router.ts",
+      "src/lib/styles.ts",
+      "src/components/AideReportTable.tsx",
+      "src/components/FileContentModal.tsx",
+      "src/components/NodeStatusOverviewPage.tsx",
+      "src/components/ReinitActions.tsx"
+    ]
+  }
+}
