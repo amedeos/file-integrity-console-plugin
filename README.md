@@ -215,7 +215,43 @@ Multi-arch is cheap to add when someone needs it: the web assets are
 architecture-independent and the Go binary is `CGO_ENABLED=0`, so both build
 stages stay native and only the runtime layer varies — no emulation.
 
+### Install from OperatorHub
+
+Published as a community operator, so it appears in **Operators → OperatorHub**
+under the name *File Integrity Console Plugin*.
+
+**On the install form, set "Console plugin" to Enable.** It defaults to
+*Disable*, with a warning about trusting the plugin, and installing without
+changing it leaves the operator running and **no menu entry at all** — no error,
+nothing in the console's face. That default is not about this plugin: the
+console trusts exactly one catalogue, `redhat-operators`
+([`isCatalogSourceTrusted`][trusted]), and every community operator that ships a
+console plugin gets the same treatment. If it is already installed and there is
+no menu entry, this is why:
+
+```sh
+oc patch consoles.operator.openshift.io cluster --type=json \
+  -p '[{"op":"add","path":"/spec/plugins/-","value":"file-integrity-console-plugin"}]'
+```
+
+**Install it into `openshift-file-integrity`**, which the form suggests. The
+`ConsolePlugin` the bundle ships names that namespace literally — OLM fills
+nothing in inside a cluster-scoped manifest — so installing elsewhere leaves the
+console unable to fetch the plugin's assets. That failure is at least visible:
+the plugin is listed as failed under **Administration → Cluster Settings →
+Console plugins**.
+
+The bundle grants its ServiceAccount nothing, exactly as the chart does. OLM
+creates the account from the deployment and binds no role to it, because the CSV
+declares none.
+
+[trusted]: https://github.com/openshift/console/blob/master/frontend/packages/operator-lifecycle-manager/src/utils.tsx
+
 ### Install the chart
+
+Nothing about the chart changed when the bundle arrived, and it remains the way
+to install from a checkout, into a namespace of your choosing, or with a
+non-default configuration.
 
 ```sh
 helm install file-integrity-console-plugin charts/file-integrity-console-plugin \
@@ -345,6 +381,50 @@ git tag v0.1.1 && git push origin v0.1.1
 ```
 
 Quay builds the tag into `quay.io/asalvati/file-integrity-console-plugin:0.1.1`.
+
+### Publishing the OLM bundle
+
+The bundle is **generated from the chart**, never written beside it, so there is
+one description of what an installation creates and it cannot drift:
+
+```sh
+node hack/bundle/build-bundle.mjs        # -> dist/bundle/, not committed
+```
+
+Only the parts a chart has no opinion about — display name, description, icon,
+install modes, annotations — are written by hand, in `hack/bundle/csv-base.yaml`.
+Which console generation the bundle targets is decided by the version in
+`package.json`: the suffix selects a row of the table in `build-bundle.mjs`, and
+that table lives on `main` and is merged forward, for the same reason
+`.github/branch-delta.json` does.
+
+| branch | version | published to catalogues | channel |
+|---|---|---|---|
+| `main` | `X.Y.Z` | `v4.22` and later | `stable-4.22` |
+| `release-4.19` | `X.Y.Z-ocp4.19` | `v4.19-v4.21` | `stable-4.19` |
+| `release-4.16` | `X.Y.Z-ocp4.16` | `v4.16-v4.18` | `stable-4.16` |
+
+One package, three bundles that never meet: each per-OpenShift catalogue is
+built from the bundles whose range covers it, so a 4.16 cluster is never offered
+the 4.22 build. A channel per generation says the same thing a second way — in
+semver `0.1.0-ocp4.16` is a *prerelease* of `0.1.0` and sorts before it, so a
+single shared channel would describe an upgrade from the 4.16 build to the 4.22
+one.
+
+**Tag first.** A bundle names an immutable image, so `vX.Y.Z` has to exist and
+Quay has to have built it before the bundle is generated for submission.
+
+Then copy `dist/bundle/manifests` and `dist/bundle/metadata` into a fork of
+[`community-operators-prod`][cop] at
+`operators/file-integrity-console-plugin/<version>/` and open a pull request
+there. `dist/bundle/bundle.Dockerfile` is not part of that submission; it is
+there to build a bundle image for a local catalogue when testing.
+
+CI generates and validates the bundle on every pull request, so a change to the
+chart that would break it is caught here rather than in someone else's
+repository.
+
+[cop]: https://github.com/redhat-openshift-ecosystem/community-operators-prod
 
 ## Licence
 

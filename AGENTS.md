@@ -95,7 +95,19 @@ file it touches and buries real changes.
   `0.1.1`. Valid semver, accepted by the manifest schema, and the console then
   displays which build is installed. Without it, the same `v0.1.1` cut on two
   branches produces two different images racing for one image tag — and with
-  `IfNotPresent` the loser is invisible.
+  `IfNotPresent` the loser is invisible. The OLM bundle reads that same suffix
+  to decide which OpenShift catalogues it belongs in, so it is now load-bearing
+  in a second place.
+- **The OLM bundle is generated from the chart and never written beside it.**
+  `hack/bundle/build-bundle.mjs` renders the chart and rearranges it; only what
+  a chart has no opinion about — display name, icon, install modes, annotations
+  — is hand-written, in `hack/bundle/csv-base.yaml`. Editing a manifest under
+  `dist/bundle/` is editing a build artefact. A second hand-written copy of the
+  Deployment and the ConsolePlugin is the same defect as a fix authored on a
+  release branch: two descriptions of one thing, and nothing comparing them.
+  The CSV declares **no `permissions` and no `clusterPermissions`** — that is
+  how the no-RBAC invariant survives into OLM, since OLM binds to the account
+  exactly what the CSV asks for. CI asserts it, as it does for the chart.
 
 ## Supporting more than one console generation
 
@@ -253,7 +265,8 @@ Two things this buys that a cluster does not:
 
 **Paths that must never diverge between branches:** `backend/`, `charts/`,
 `Containerfile`, `.github/workflows/ci.yml`, `console-extensions.json`,
-`locales/`, `tsconfig.json`, and all of `src/lib/` except the three shims.
+`hack/`, `locales/`, `tsconfig.json`, and all of `src/lib/` except the three
+shims.
 
 The single exception is `Chart.yaml`'s `version` and `appVersion`, which carry
 the generation suffix on a release branch. They name the build the chart

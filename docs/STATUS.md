@@ -394,23 +394,92 @@ OpenShift 4.16 is 1.29, 4.17 is 1.30, 4.19 is 1.32. So the SPDY fallback — the
 use behind it — runs on 4.16 alone, and 4.17 upwards take the same path as `main`. Narrower, not
 closed: nobody has read a file through the plugin on any cluster older than 4.22.
 
+## The OLM bundle — 26 July 2026
+
+The plugin is packaged as an operator bundle, to be published as a **community operator**. It is
+standalone for now; folding it into `openshift/file-integrity-operator` upstream stays a later
+question.
+
+**No controller was needed.** `ConsolePlugin` is a kind OLM accepts in a bundle — cluster-scoped,
+listed in `operator-registry/pkg/lib/bundle/supported_resources.go` — so the CSV carries the
+Deployment and the ConsolePlugin and Service ship as manifests beside it. What looked like it
+might need a small operator needs none.
+
+**The bundle is generated from the chart**, by `hack/bundle/build-bundle.mjs`. Writing it by hand
+would have made a second description of the same Deployment, Service and ConsolePlugin, with
+nothing comparing the two — the defect this repository has already built one CI job against. Only
+`hack/bundle/csv-base.yaml` is hand-written, and it contains nothing a chart has an opinion about.
+
+The generation is read from `package.json`'s version suffix and mapped, by a table in the
+generator, to an OpenShift range and a channel:
+
+| branch | version | `com.redhat.openshift.versions` | channel | `minKubeVersion` |
+|---|---|---|---|---|
+| `main` | `0.1.0` | `v4.22` | `stable-4.22` | 1.35.0 |
+| `release-4.19` | `0.1.0-ocp4.19` | `v4.19-v4.21` | `stable-4.19` | 1.32.0 |
+| `release-4.16` | `0.1.0-ocp4.16` | `v4.16-v4.18` | `stable-4.16` | 1.29.0 |
+
+The Kubernetes versions were read from `openshift/kubernetes`'s `go.mod` on each branch, not
+recalled. One package, three bundles that never meet: the range annotation decides which per-OCP
+catalogue each lands in.
+
+### What the research found, and where
+
+- **A community catalogue is not trusted.** `isCatalogSourceTrusted` in the console's OLM package
+  returns true for `redhat-operators` and nothing else, so the install form defaults our plugin to
+  *Disabled* and shows a trust warning. Install without touching it and the operator runs with no
+  menu entry — the same symptom as the 4.16 flag race, from an entirely different cause. This is
+  now the first paragraph of the README's OperatorHub section.
+- **`console.openshift.io/plugins` on the CSV** is what makes that control appear at all
+  (`operator-hub-subscribe.tsx`, `console-plugin-form-group.tsx`). Without it, nothing registers
+  the plugin and nothing says so.
+- **The console-patching Job cannot ship.** `Job` is not a supported bundle kind. It is not needed
+  either — the install form is what patches `consoles.operator.openshift.io`. The consequence is
+  that Helm enables the plugin automatically and OLM does not.
+- **The ServiceAccount must not ship.** OLM derives it from the deployment's `serviceAccountName`
+  and creates it itself; shipping the chart's copy as well is a duplicate that
+  `operator-sdk bundle validate` rejects outright. Dropping it costs nothing and keeps the
+  invariant: with no `permissions` in the CSV, the account OLM creates is bound to nothing.
+
+### Verified, and not
+
+Verified locally, on all three generations: the generator runs, the three tables agree, and
+`operator-sdk bundle validate` passes the `operatorframework` suite plus the `community`,
+`good-practices`, `capabilities` and `categories` validators. The `multiarch` validator asked for
+`operatorframework.io/arch.amd64` and `operatorframework.io/os.linux`, which the CSV now carries —
+the README already said the image is linux/amd64 only, and now the bundle says it somewhere a
+cluster can act on.
+
+**Not verified: anything on a cluster.** No bundle image has been built, no catalogue created, no
+install performed. Every claim above about what the install form does is read from the console's
+source. The whole point of the 4.16 and 4.19 work was that reading is not seeing, and this has not
+been seen yet.
+
 ## Where to pick up — 26 July 2026, later
 
 All three generations exist and are merged: `main`, `release-4.19` (#23), `release-4.16` (#22).
 Each release branch contains `origin/main`; the `branch-delta` job is green on both.
 
-**Left to do**, none of it blocking:
+**Next, in order:**
 
-- **`terser-webpack-plugin` is required by `webpack.config.ts` and declared nowhere.** It resolves
-  today only because webpack happens to depend on it, which is why deduping webpack upwards broke
-  the 4.19 build. Fixed on `main` in this same pull request; the release branches pick it up by
-  merge-forward, where `package.json` conflicts by design.
-- **Lab cleanup**: the internal registry on `emptyDir`, the BuildConfig, the ImageStream, the
-  `fio-curl` pod and the `fio-viewer` ServiceAccount and RoleBinding are all left over from before
-  the image came from Quay.
-- **Blocked on a real 4.16 cluster**: the SPDY exec fallback — read a file through the plugin, read
-  it on the node, compare byte count and `sha256` before looking at the interface — and the file
-  content modal's successful state, which no harness has ever rendered.
+1. **Try the bundle on the lab cluster.** Build a bundle image and a one-bundle catalogue with
+   `opm`, apply a `CatalogSource`, install from OperatorHub, and watch: the *Console plugin* radio
+   appears, defaults to *Disabled*, and enabling it produces the menu entry. Then repeat leaving it
+   *Disabled*, to see exactly what a user who changes nothing gets — the README describes that, and
+   it should describe what was seen.
+2. **Cut the tags.** `v0.1.0` on `main`, `v0.1.0-ocp4.19` and `v0.1.0-ocp4.16` on the release
+   branches. No tag has ever been cut, and the README's install command already names
+   `...:0.1.0` — a tag that does not exist. A bundle names an immutable image, so this comes before
+   any submission.
+3. **Submit**, one pull request per bundle to `community-operators-prod`, starting with 4.22 alone:
+   it is the generation we can test end to end, and the community CI is better learned on one
+   bundle than on three.
+
+**Left over:** the lab cluster still has the internal registry on `emptyDir`, the BuildConfig, the
+ImageStream, the `fio-curl` pod and the `fio-viewer` ServiceAccount and RoleBinding, all from
+before the image came from Quay. And on a real 4.16 cluster, the SPDY exec fallback — read a file
+through the plugin, read it on the node, compare byte count and `sha256` before looking at the
+interface.
 
 ## Environment notes
 
@@ -422,6 +491,17 @@ Each release branch contains `origin/main`; the `branch-delta` job is green on b
   ```
   `/var/tmp` is a tmpfs: it empties when the container restarts, so this has to be redone every
   time. The same goes for `helm`, also absent (`oc` and `kubectl` are present).
+- Building the OLM bundle needs `helm` and, to check it, `operator-sdk`; neither is preinstalled
+  and both are single binaries:
+  ```sh
+  curl -sfL https://get.helm.sh/helm-v3.16.4-linux-amd64.tar.gz | tar xz -C /var/tmp \
+    --strip-components=1 linux-amd64/helm
+  curl -sfL -o /var/tmp/operator-sdk \
+    https://github.com/operator-framework/operator-sdk/releases/download/v1.42.3/operator-sdk_linux_amd64
+  chmod +x /var/tmp/operator-sdk && export PATH=/var/tmp:$PATH
+  ```
+  The `multiarch` validator additionally wants to pull the image and will warn that it cannot;
+  there is no container runtime here.
 - `yarn` is not on the PATH: use the committed binary,
   `node .yarn/releases/yarn-4.14.1.cjs <cmd>`.
 - `/home/agent` is a 1 GB tmpfs and the yarn cache lives under it, so an install eventually fails

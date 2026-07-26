@@ -410,6 +410,145 @@ jobs:
             --set plugin.jobs.patchConsoles.enabled=false > /tmp/norbac.yaml
           ! grep -qE '^kind: (Cluster)?Role(Binding)?$' /tmp/norbac.yaml
 
+  # The OLM bundle is generated from the chart rather than written beside it,
+  # so there is only one description of what an installation creates. This job
+  # is what keeps that true: it builds the bundle the way a release would and
+  # then asks the same questions of it that the chart job asks of the chart.
+  #
+  # It is one job checking three different expected answers, because everything
+  # it asserts is derived from the branch's own package.json — the version, the
+  # OpenShift range, the channel. Nothing here is per-branch, which is why
+  # ci.yml can stay a path that must never diverge.
+  bundle:
+    name: OLM bundle
+    runs-on: ubuntu-latest
+    # The nightly run exists only for the branch-delta drift check.
+    if: github.event_name != 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install
+        run: yarn install --immutable
+
+      - name: Install operator-sdk
+        run: |
+          curl -sfL -o /usr/local/bin/operator-sdk \
+            https://github.com/operator-framework/operator-sdk/releases/download/v1.42.3/operator-sdk_linux_amd64
+          chmod +x /usr/local/bin/operator-sdk
+
+      - name: Generate
+        # A fixed timestamp so two runs of the same commit produce the same
+        # bundle; a release sets its own.
+        run: BUNDLE_CREATED_AT=2000-01-01T00:00:00Z node hack/bundle/build-bundle.mjs
+
+      - name: Validate
+        run: |
+          operator-sdk bundle validate ./dist/bundle \
+            --select-optional suite=operatorframework
+          operator-sdk bundle validate ./dist/bundle --select-optional name=community
+
+      # Everything below reads the generated bundle rather than trusting the
+      # generator. Each assertion is one that has already been got wrong once,
+      # here or in the chart.
+      - name: The bundle says what this branch is
+        run: |
+          node - <<'EOF'
+          const fs = require('fs');
+          const yaml = require('js-yaml');
+
+          const version = JSON.parse(fs.readFileSync('package.json', 'utf8')).version;
+          const dir = 'dist/bundle/manifests';
+          const read = (f) => yaml.load(fs.readFileSync(f, 'utf8'));
+
+          const csv = read(`${dir}/file-integrity-console-plugin.v${version}.clusterserviceversion.yaml`);
+          const meta = read('dist/bundle/metadata/annotations.yaml').annotations;
+
+          // The generation table lives in the generator, on `main`. This is the
+          // independent statement of the same thing: a branch whose version says
+          // 4.16 must not publish a bundle offered to a 4.22 catalogue.
+          const expected = {
+            '-ocp4.16': { range: 'v4.16-v4.18', channel: 'stable-4.16' },
+            '-ocp4.19': { range: 'v4.19-v4.21', channel: 'stable-4.19' },
+            '': { range: 'v4.22', channel: 'stable-4.22' },
+          };
+          const suffix = Object.keys(expected).find((s) => s !== '' && version.endsWith(s)) ?? '';
+          const want = expected[suffix];
+
+          const fail = [];
+          const check = (what, got, wanted) => {
+            if (got !== wanted) fail.push(`${what}: ${got} — expected ${wanted}`);
+          };
+
+          check('csv version', csv.spec.version, version);
+          check('openshift range', meta['com.redhat.openshift.versions'], want.range);
+          check('channel', meta['operators.operatorframework.io.bundle.channels.v1'], want.channel);
+          check(
+            'default channel',
+            meta['operators.operatorframework.io.bundle.channel.default.v1'],
+            want.channel,
+          );
+          check(
+            'container image',
+            csv.metadata.annotations.containerImage,
+            `quay.io/asalvati/file-integrity-console-plugin:${version}`,
+          );
+
+          // The annotation that makes the console offer the plugin at all.
+          // Without it the operator installs and nothing appears, with no error
+          // anywhere — which is the failure this repository keeps meeting.
+          check(
+            'console plugin annotation',
+            csv.metadata.annotations['console.openshift.io/plugins'],
+            '["file-integrity-console-plugin"]',
+          );
+
+          // OLM templates nothing inside a cluster-scoped manifest, so this
+          // namespace is literal in the shipped bundle. If it ever stops
+          // agreeing with the suggested namespace, the console cannot reach the
+          // plugin's backend and the failure is a blank page.
+          const plugin = read(
+            `${dir}/file-integrity-console-plugin_console.openshift.io_v1_consoleplugin.yaml`,
+          );
+          check(
+            'consoleplugin namespace',
+            plugin.spec.backend.service.namespace,
+            'openshift-file-integrity',
+          );
+          check(
+            'suggested namespace',
+            csv.metadata.annotations['operatorframework.io/suggested-namespace'],
+            plugin.spec.backend.service.namespace,
+          );
+
+          if (fail.length) {
+            fail.forEach((f) => console.error(`  ${f}`));
+            process.exit(1);
+          }
+          console.log(`${version}: ${want.range}, channel ${want.channel}, all as declared`);
+          EOF
+
+      # The counterpart of the chart's "No RBAC for the plugin ServiceAccount".
+      # OLM creates the account from the deployment's serviceAccountName and
+      # binds it to whatever the CSV declares — so declaring nothing is what
+      # keeps the invariant, and it has to be asserted in the bundle too.
+      - name: No RBAC in the bundle
+        run: |
+          ! grep -qE '^ *(permissions|clusterPermissions):' \
+            dist/bundle/manifests/*.clusterserviceversion.yaml
+          ! grep -rqE '^kind: (Cluster)?Role(Binding)?$' dist/bundle/manifests/
+
   image:
     name: Container image
     runs-on: ubuntu-latest
