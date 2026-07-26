@@ -10,8 +10,20 @@ plan, and what is left to do. Read both before starting.
 
 ## Branches and commits
 
-- **Never commit to `main`.** Branch first, open a pull request, let CI run.
-  This applies to a one-line documentation fix as much as to a feature.
+- **Never push to `main`, and never to a release branch either.** Branch first,
+  open a pull request, let CI run. This applies to a one-line documentation fix
+  as much as to a feature. A release branch is not a working branch: Quay builds
+  an image on every push to it, so pushing directly publishes the tag and *then*
+  runs CI — by the time the build goes red, the broken image is already
+  something a user can pull.
+- **A pull request merging `main` forward into a release branch is merged with a
+  merge commit — never squashed, never rebased.** Squashing flattens it into a
+  new commit and git loses the record that `main`'s commits are ancestors, so
+  the next merge-forward re-presents the same changes as conflicts, and keeps
+  doing it. Squash stays fine for a pull request carrying the branch's own
+  delta. Rebasing is worse: it rewrites commits that have already been pushed
+  and leaves the remote and every clone divergent, which is how `release-4.16`
+  first diverged.
 - One branch per concern. Two unrelated changes are two branches, so that each
   can be reviewed, reverted or held back on its own.
 - **English** everywhere in the repository: code, comments, documents, commit
