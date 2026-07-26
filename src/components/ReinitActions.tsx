@@ -4,15 +4,13 @@ import type { MenuToggleElement } from '@patternfly/react-core';
 import {
   Alert,
   Button,
-  Content,
   Dropdown,
   DropdownItem,
   DropdownList,
   MenuToggle,
   Modal,
-  ModalBody,
-  ModalFooter,
-  ModalHeader,
+  Text,
+  TextContent,
 } from '@patternfly/react-core';
 import { k8sPatch } from '../lib/k8s';
 import { ANNOTATIONS, I18N_NS } from '../constants';
@@ -74,34 +72,45 @@ const ReinitConfirmModal: React.FC<{
   };
 
   return (
-    <Modal isOpen variant="medium" onClose={onClose}>
-      <ModalHeader title={state.title} titleIconVariant="warning" />
-      <ModalBody>
-        <Content component="p">{state.body}</Content>
-        <Content component="p">
-          {t(
-            'The current AIDE database is discarded and rebuilt from the files as they are on disk now. Everything currently reported as added, changed or removed stops being reported, including any change that turns out to be an intrusion. Only do this once you have reviewed the outstanding findings.',
-          )}
-        </Content>
-        {error ? (
-          <Alert variant="danger" isInline title={t('Request failed')}>
-            {error}
-          </Alert>
-        ) : null}
-      </ModalBody>
-      <ModalFooter>
+    <Modal
+      isOpen
+      variant="medium"
+      onClose={onClose}
+      title={state.title}
+      titleIconVariant="warning"
+      actions={[
         <Button
+          key="confirm"
           variant="danger"
           onClick={onConfirm}
           isLoading={submitting}
           isDisabled={submitting}
         >
           {t('Re-initialize baseline')}
-        </Button>
-        <Button variant="link" onClick={onClose} isDisabled={submitting}>
+        </Button>,
+        <Button
+          key="cancel"
+          variant="link"
+          onClick={onClose}
+          isDisabled={submitting}
+        >
           {t('Cancel')}
-        </Button>
-      </ModalFooter>
+        </Button>,
+      ]}
+    >
+      <TextContent>
+        <Text component="p">{state.body}</Text>
+        <Text component="p">
+          {t(
+            'The current AIDE database is discarded and rebuilt from the files as they are on disk now. Everything currently reported as added, changed or removed stops being reported, including any change that turns out to be an intrusion. Only do this once you have reviewed the outstanding findings.',
+          )}
+        </Text>
+      </TextContent>
+      {error ? (
+        <Alert variant="danger" isInline title={t('Request failed')}>
+          {error}
+        </Alert>
+      ) : null}
     </Modal>
   );
 };

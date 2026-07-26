@@ -12,5 +12,17 @@
  * a component holding a different copy of the router than the console sees no
  * route context at all, so `useParams()` returns an empty object and the page
  * renders as though the node simply did not exist.
+ *
+ * `useParams` is wrapped rather than re-exported because the two generations
+ * disagree about the return type: v7 types every parameter as possibly
+ * undefined, v5 types them as present. A component written against v5's
+ * promise would have its `?? ''` flagged as dead code here and be a latent
+ * crash on 4.22, so this shim narrows both to the weaker of the two. The
+ * runtime value is the same object either way; only the type differs.
  */
-export { Link, useParams } from 'react-router';
+import { useParams as useRouterParams } from 'react-router-dom';
+
+export { Link } from 'react-router-dom';
+
+export const useParams = <T extends Record<string, string>>(): Partial<T> =>
+  useRouterParams<Partial<T>>();

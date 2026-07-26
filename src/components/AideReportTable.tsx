@@ -4,6 +4,7 @@ import {
   Button,
   EmptyState,
   EmptyStateBody,
+  EmptyStateHeader,
   Label,
   SearchInput,
   Toolbar,
@@ -154,7 +155,11 @@ export const AideReportTable: React.FC<Props> = ({
       </Toolbar>
 
       {rows.length === 0 ? (
-        <EmptyState headingLevel="h4" titleText={t('No matching files')}>
+        <EmptyState>
+          <EmptyStateHeader
+            headingLevel="h4"
+            titleText={t('No matching files')}
+          />
           <EmptyStateBody>
             {t('Adjust the search text or the change type filters.')}
           </EmptyStateBody>
@@ -163,7 +168,9 @@ export const AideReportTable: React.FC<Props> = ({
         <Table aria-label={t('Detected file changes')} variant="compact">
           <Thead>
             <Tr>
-              <Th screenReaderText={t('Expand row')} />
+              {/* PatternFly 5.2 has no `screenReaderText`; an aria-label on the
+                  empty header cell is what it was introduced to replace. */}
+              <Th aria-label={t('Expand row')} />
               <Th width={15}>{t('Change')}</Th>
               <Th>{t('Path on node')}</Th>
               <Th width={20}>{t('AIDE flags')}</Th>

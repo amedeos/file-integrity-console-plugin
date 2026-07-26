@@ -15,19 +15,29 @@
 /** Utility classes. */
 export const CSS = {
   /** Secondary text colour, for de-emphasised detail. */
-  textSecondary: 'pf-v6-u-color-200',
-  fontSizeSm: 'pf-v6-u-font-size-sm',
-  marginTopSm: 'pf-v6-u-mt-sm',
-  marginTopMd: 'pf-v6-u-mt-md',
-  marginBottomMd: 'pf-v6-u-mb-md',
+  textSecondary: 'pf-v5-u-color-200',
+  fontSizeSm: 'pf-v5-u-font-size-sm',
+  marginTopSm: 'pf-v5-u-mt-sm',
+  marginTopMd: 'pf-v5-u-mt-md',
+  marginBottomMd: 'pf-v5-u-mb-md',
 } as const;
 
-/** Design tokens, as ready-to-use `var(...)` expressions. */
+/**
+ * Design tokens, as ready-to-use `var(...)` expressions.
+ *
+ * PatternFly 6's semantic tokens have no equivalent here: version 5 exposes the
+ * palette directly, so these are the nearest values rather than the same ones,
+ * and this generation will not look pixel-identical to 4.22. That is a
+ * consequence of the console's own stylesheet, not something a plugin can fix.
+ *
+ * The floor of this branch is what these have to satisfy: consoles 4.16 and
+ * 4.17 load `@patternfly/patternfly` 5.2.1, 4.18 loads 5.4.0. Every name below
+ * is present in 5.2.
+ */
 export const TOKEN = {
-  statusDanger: 'var(--pf-t--global--text--color--status--danger--default)',
-  statusWarning: 'var(--pf-t--global--text--color--status--warning--default)',
-  statusSuccess: 'var(--pf-t--global--text--color--status--success--default)',
-  backgroundSecondary:
-    'var(--pf-t--global--background--color--secondary--default)',
-  spacerMd: 'var(--pf-t--global--spacer--md)',
+  statusDanger: 'var(--pf-v5-global--danger-color--100)',
+  statusWarning: 'var(--pf-v5-global--warning-color--100)',
+  statusSuccess: 'var(--pf-v5-global--success-color--100)',
+  backgroundSecondary: 'var(--pf-v5-global--BackgroundColor--200)',
+  spacerMd: 'var(--pf-v5-global--spacer--md)',
 } as const;

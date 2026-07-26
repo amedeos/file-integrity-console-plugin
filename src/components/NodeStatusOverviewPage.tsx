@@ -9,6 +9,7 @@ import {
   CardTitle,
   EmptyState,
   EmptyStateBody,
+  EmptyStateHeader,
   Flex,
   FlexItem,
   Gallery,
@@ -241,10 +242,11 @@ const NodeStatusOverviewPage: React.FC = () => {
             </Toolbar>
 
             {statuses.length === 0 ? (
-              <EmptyState
-                headingLevel="h4"
-                titleText={t('No scan results yet')}
-              >
+              <EmptyState>
+                <EmptyStateHeader
+                  headingLevel="h4"
+                  titleText={t('No scan results yet')}
+                />
                 <EmptyStateBody>
                   {fis.length === 0
                     ? t(

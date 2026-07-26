@@ -11,9 +11,6 @@ import {
   DescriptionListGroup,
   DescriptionListTerm,
   Modal,
-  ModalBody,
-  ModalFooter,
-  ModalHeader,
   Spinner,
 } from '@patternfly/react-core';
 import { I18N_NS } from '../constants';
@@ -173,9 +170,25 @@ export const FileContentModal: React.FC<Props> = ({
   const rendered = error ? errorText(error) : undefined;
 
   return (
-    <Modal isOpen variant="large" onClose={onClose}>
-      <ModalHeader title={path} />
-      <ModalBody>
+    <Modal
+      isOpen
+      variant="large"
+      onClose={onClose}
+      title={path}
+      actions={[
+        ...(result
+          ? [
+              <Button key="download" variant="secondary" onClick={onDownload}>
+                {t('Download')}
+              </Button>,
+            ]
+          : []),
+        <Button key="close" variant="link" onClick={onClose}>
+          {t('Close')}
+        </Button>,
+      ]}
+    >
+      <>
         <DescriptionList isHorizontal isCompact>
           <DescriptionListGroup>
             <DescriptionListTerm>{t('Node')}</DescriptionListTerm>
@@ -259,17 +272,7 @@ export const FileContentModal: React.FC<Props> = ({
             </pre>
           )}
         </div>
-      </ModalBody>
-      <ModalFooter>
-        {result ? (
-          <Button variant="secondary" onClick={onDownload}>
-            {t('Download')}
-          </Button>
-        ) : null}
-        <Button variant="link" onClick={onClose}>
-          {t('Close')}
-        </Button>
-      </ModalFooter>
+      </>
     </Modal>
   );
 };
