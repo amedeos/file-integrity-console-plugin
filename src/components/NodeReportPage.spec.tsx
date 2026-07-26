@@ -9,7 +9,11 @@ import type { ResultConfigMap } from '../lib/decode';
 // by console generation, and the component only ever sees the shim.
 jest.mock('../lib/router', () => ({
   useParams: () => ({ fiName: 'example-fileintegrity', nodeName: 'node-0' }),
-  Link: ({ children }: React.PropsWithChildren) => <a>{children}</a>,
+  // Written out rather than as `PropsWithChildren`, which only gained a default
+  // type argument in @types/react 18: bare it fails to compile on the React 17
+  // release branches, and spelled `<unknown>` it trips
+  // `no-unnecessary-type-arguments` here. This form satisfies both.
+  Link: ({ children }: { children?: React.ReactNode }) => <a>{children}</a>,
 }));
 
 const mockConfigMap = jest.fn<ResultConfigMap | undefined, []>();
