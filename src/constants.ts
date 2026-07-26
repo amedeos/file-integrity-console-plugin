@@ -17,6 +17,13 @@ export const I18N_NS = 'plugin__file-integrity-console-plugin';
 /** Must match consolePlugin.name in package.json. */
 export const PLUGIN_NAME = 'file-integrity-console-plugin';
 
+/**
+ * Console feature flag gating this plugin's navigation item and routes. Set by
+ * `src/flags.ts`; must match the `flags.required` entries in
+ * `console-extensions.json`.
+ */
+export const FILE_INTEGRITY_FLAG = 'FILE_INTEGRITY';
+
 /** Proxy alias declared in the ConsolePlugin resource. */
 export const BACKEND_PROXY_ALIAS = 'fio-backend';
 

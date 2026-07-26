@@ -177,6 +177,21 @@ Two things this buys that a cluster does not:
   `@types/react-router` and `@types/react-router-dom` both depend on
   `@types/react: "*"`, so each pulls its own copy of 19, under which `Link`
   stops being usable as a JSX element.
+- **Do not gate anything on `console.flag/model` before 4.22.** That extension
+  is evaluated only when API discovery completes, and a plugin registering
+  afterwards adds its model to the console's map without anything re-reading
+  it — `frontend/public/reducers/features.ts` carries a `TODO(vojtech): change
+  of 'CRDs' should trigger relevant detection logic` beside that code, and 4.22
+  fixed it with an `UpdateModelFlags` action. Discovery does not run again
+  either: for a caller allowed to watch CustomResourceDefinitions,
+  `startAPIDiscovery` runs it once and then only when a CRD is added or
+  removed; the 60-second poll is the fallback for callers without that
+  permission. Losing the startup race therefore costs the whole navigation
+  item until the page is reloaded — observed on 4.16, absent on first load and
+  present afterwards. `src/flags.ts` sets the flag through a
+  `console.flag/hookProvider` instead: the console mounts it via
+  `useResolvedExtensions` whenever the plugin arrives, and `useK8sModel` is a
+  live selector, so neither ordering matters.
 - **On 4.16–4.18 PatternFly is a module the console *shares* with plugins**, with
   a fallback allowed; from 4.19 it is not shared and the plugin bundles its own.
   So on the oldest generation the components that actually render may come from
