@@ -1,0 +1,132 @@
+# The half of the ClusterServiceVersion that the Helm chart has no opinion
+# about: what this thing is called, who publishes it, and how OLM should offer
+# it. Everything describing *what gets created* comes from the chart instead —
+# see hack/bundle/build-bundle.mjs — so there is only one description of the
+# Deployment, the Service, the ServiceAccount and the ConsolePlugin in this
+# repository, and the bundle cannot drift away from what `helm install` does.
+#
+# Fields the generator fills in and that are therefore absent here:
+# metadata.name, spec.version, spec.install, and the annotations that carry the
+# image reference and the build timestamp.
+apiVersion: operators.coreos.com/v1alpha1
+kind: ClusterServiceVersion
+metadata:
+  # The image is built for linux/amd64 only — on another architecture the pod
+  # fails with `exec format error`. Saying so here is what keeps the operator
+  # off the catalogue of a cluster that cannot run it, instead of offering an
+  # install that crash-loops. Multi-arch is cheap to add when someone needs it:
+  # the web assets are architecture-independent and the Go binary is
+  # CGO_ENABLED=0. Adding an architecture means adding its label here too.
+  labels:
+    operatorframework.io/arch.amd64: supported
+    operatorframework.io/os.linux: supported
+  annotations:
+    capabilities: Basic Install
+    categories: Security,Monitoring
+    repository: https://github.com/amedeos/file-integrity-console-plugin
+    support: https://github.com/amedeos/file-integrity-console-plugin/issues
+    description: >-
+      Node-by-node view of Red Hat File Integrity Operator (AIDE) scan results
+      in the OpenShift console.
+
+    # What makes the console offer the plugin at all. Without it the operator
+    # installs and the plugin is never registered, so nothing appears.
+    #
+    # Note what this does *not* do on a community catalog. The console treats
+    # only `redhat-operators` as trusted (isCatalogSourceTrusted in
+    # frontend/packages/operator-lifecycle-manager/src/utils.tsx), so the
+    # install form defaults this plugin to **disabled** and shows a warning.
+    # Installing without touching that control leaves no menu entry. The README
+    # says so first, and says how to enable it afterwards.
+    console.openshift.io/plugins: '["file-integrity-console-plugin"]'
+
+    # A suggestion, not a constraint — the install form pre-fills it and the
+    # user may still choose another namespace. The ConsolePlugin this bundle
+    # ships names the Service's namespace literally, because OLM templates
+    # nothing inside a cluster-scoped manifest, so installing anywhere else
+    # leaves the console unable to fetch the plugin's assets. It is also the
+    # namespace the File Integrity Operator itself runs in, which is why it is
+    # the natural answer rather than merely a convenient one.
+    operatorframework.io/suggested-namespace: openshift-file-integrity
+spec:
+  displayName: File Integrity Console Plugin
+  description: |
+    A console plugin for the [File Integrity Operator][fio]: a node-by-node view
+    of AIDE scan results, with the failing files parsed out of the operator's
+    result ConfigMaps instead of read as raw log text.
+
+    It adds a **Compute → File Integrity** entry to the administrator
+    perspective, visible only on clusters where the `FileIntegrity` CRD exists.
+
+    ## What it shows
+
+    * **Overview** — every `FileIntegrityNodeStatus` in the cluster, its phase,
+      and the count of files added, changed and removed.
+    * **Node report** — the AIDE report for one node, parsed into a filterable
+      table, with the attribute differences for each changed file. Both the AIDE
+      0.16 (`CONTENTEX`) and 0.18 (`CONTENT_EX`) report grammars are read, and a
+      report the operator truncated is labelled as truncated rather than shown
+      as though it were complete.
+    * **Re-initialise** — per node or cluster-wide, behind a confirmation that
+      spells out that the current baseline is discarded.
+
+    ## How it talks to the cluster
+
+    The plugin's own ServiceAccount has **no Role and no ClusterRole**.
+    Everything the backend does against the API server it does with the calling
+    user's token, resolving the caller with `SelfSubjectReview` and checking
+    rights with `SelfSubjectAccessReview`. A request arriving without a bearer
+    token is rejected; it is never served with the plugin's own credentials.
+
+    ## Reading files from nodes
+
+    One optional feature reads the current contents of a file from a node, so a
+    reported change can be looked at. It is **off by default** and has to be
+    enabled deliberately, because it means running a command in the privileged
+    AIDE pod. When off, the endpoint answers `501` and the backend builds no
+    Kubernetes client at all. A deny list — refusing keys, certificates, shadow
+    files and the static pod resources — is checked before the caller is even
+    authenticated, so probing it costs nothing and is attributed to no session.
+
+    [fio]: https://github.com/openshift/file-integrity-operator
+
+  keywords:
+    - file integrity
+    - aide
+    - security
+    - compliance
+    - console plugin
+
+  maturity: alpha
+
+  provider:
+    name: Amedeo Salvati
+    url: https://github.com/amedeos/file-integrity-console-plugin
+
+  maintainers:
+    - name: Amedeo Salvati
+      email: amedeo@linux.com
+
+  links:
+    - name: Source
+      url: https://github.com/amedeos/file-integrity-console-plugin
+    - name: File Integrity Operator
+      url: https://github.com/openshift/file-integrity-operator
+
+  # AllNamespaces alone. The distinction the other modes draw does not apply:
+  # the plugin watches nothing itself, and every cluster read is made with the
+  # browsing user's own token. What the install mode really decides here is
+  # which namespace the pod runs in — and that has to be the one the
+  # ConsolePlugin names.
+  installModes:
+    - type: OwnNamespace
+      supported: false
+    - type: SingleNamespace
+      supported: false
+    - type: MultiNamespace
+      supported: false
+    - type: AllNamespaces
+      supported: true
+
+  # None. This operator installs a console plugin and owns no API.
+  customresourcedefinitions: {}
