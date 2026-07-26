@@ -96,7 +96,21 @@ if (generation.suffix === '' && /-/.test(version)) {
   );
 }
 
-const image = process.env.BUNDLE_IMAGE ?? `${IMAGE_REPO}:${version}`;
+const releaseImage = `${IMAGE_REPO}:${version}`;
+const image = process.env.BUNDLE_IMAGE ?? releaseImage;
+
+// A released bundle names the image built from the git tag, which never moves,
+// and `IfNotPresent` is right for it. BUNDLE_IMAGE exists so the bundle can be
+// tried before any tag is cut — pointed at `:latest` or a branch tag — and
+// those do move. With `IfNotPresent` the kubelet then reuses the layer it
+// already has and the rollout reports success while running the previous
+// binary, which this repository has already lost time to once.
+//
+// Derived rather than asked for, because it is a property of the reference:
+// only a digest or the release tag itself is immutable.
+const immutable = image.includes('@sha256:') || image === releaseImage;
+const pullPolicy = immutable ? 'IfNotPresent' : 'Always';
+
 const createdAt =
   process.env.BUNDLE_CREATED_AT ??
   new Date().toISOString().replace(/\.\d+Z$/, 'Z');
@@ -127,6 +141,8 @@ const rendered = execFileSync(
     NAMESPACE,
     '--set',
     `plugin.image=${image}`,
+    '--set',
+    `plugin.imagePullPolicy=${pullPolicy}`,
     '--set',
     'plugin.jobs.patchConsoles.enabled=false',
   ],
@@ -299,7 +315,7 @@ fs.writeFileSync(
 
 const relative = path.relative(ROOT, OUT);
 console.log(`${PACKAGE} ${version}`);
-console.log(`  image     ${image}`);
+console.log(`  image     ${image} (pull ${pullPolicy})`);
 console.log(`  console   ${generation.ocpVersions}`);
 console.log(`  channel   ${generation.channel}`);
 console.log(`  namespace ${NAMESPACE}`);
