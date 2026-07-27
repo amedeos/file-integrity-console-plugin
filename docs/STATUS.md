@@ -649,11 +649,15 @@ script now snapshots it, and asserts after the teardown that nothing of the plug
 the list is unchanged, that FIO's CSV and deployment are untouched and that there is still exactly
 one OperatorGroup. Five checks, run in both modes, so the full round trip is nineteen.
 
+**Nineteen of nineteen on the lab cluster, and the plugin visible and working in the console.**
+Install, teardown and re-install were each run, in that order, so the round trip is idempotent as
+well as correct. This is the first installation of this operator from a release tag rather than a
+hand-pushed `:test` image.
+
 **Next, in order:**
 
-1. **Re-run `hack/lab/bundle.sh 0.1.0`** and confirm 19 of 19, then again for idempotence. Open
-   Compute → File Integrity and use *View file* on a changed file: it is the one path no check
-   here can see, and the only one that needs the console proxy and the browsing user's token.
+1. **`hack/lab/console.sh 0.1.0 4.16 4.19`** — the two release builds have not been loaded by a
+   console since they were published.
 2. **Submit**, one pull request per bundle to `community-operators-prod`, starting with 4.22 alone:
    it is the generation that has been installed end to end, and the community CI is better learned
    on one bundle than on three.
