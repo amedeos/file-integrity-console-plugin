@@ -54,29 +54,42 @@ file it touches and buries real changes.
 
 ## Invariants — breaking one of these is a design change, not a tweak
 
-- **The backend's ServiceAccount is granted no rule.** Everything it does
-  against the API server runs as the calling user, through `SelfSubjectReview`
-  and `SelfSubjectAccessReview`. If you find yourself needing a rule, something
-  has started using the pod's identity instead of the caller's.
-  The chart says this by rendering no Role or ClusterRole at all, and CI asserts
-  that. The OLM bundle cannot say it the same way: OLM creates a
-  ServiceAccount only from `permissions`, and turns every entry there into a
-  Role and a RoleBinding regardless of its rules. So the bundle declares one
-  entry with an **empty rule list**, and CI asserts the emptiness — a check on
-  content, which is stronger than a check for an absent block. Running the pod
-  as the namespace's `default` account instead would create no RBAC object at
-  all and was rejected for it: `default` is shared, so a rule granted to it
-  later for an unrelated reason would be inherited here in silence.
+- **The request-serving path has no authority of its own.** Every call the
+  backend makes to the API server *on behalf of a browsing user* is made with
+  that user's token, through `SelfSubjectReview` and `SelfSubjectAccessReview`.
+  If serving a request starts needing a rule, something has begun using the
+  pod's identity instead of the caller's, and that is the confused deputy this
+  whole design exists to prevent.
 
-  **Under OLM the account does end up holding exactly one rule, and it is not
-  ours.** Every CSV gets an `OperatorCondition`, and OLM creates a Role — named
-  after the CSV, owned by that condition, labelled `olm.managed` — letting the
-  operator `get`, `update` and `patch` **its own**, restricted by
-  `resourceNames` to that single object. It cannot be declined and it reaches
-  nothing else; this plugin never uses it. Observed on 4.22 by installing and
-  looking, after the check in `hack/lab/bundle.sh` reported it. That check now
-  tolerates that rule *by shape* — widen it, drop the `resourceNames`, or add a
-  second rule, and it fails again. Do not relax it to "OLM-managed Roles are
+  The ServiceAccount holds **no namespaced rule at all**. The chart says so by
+  rendering no `Role`, the bundle by declaring one `permissions` entry with an
+  **empty rule list** — it has to declare one, because OLM creates the
+  ServiceAccount from `permissions` and from nothing else — and CI asserts the
+  emptiness in both. Running the pod as the namespace's `default` account
+  instead would create no RBAC object at all and was rejected for it: `default`
+  is shared, so a rule granted to it later for an unrelated reason would be
+  inherited here in silence.
+
+  Cluster-wide it holds **exactly two rules, and they are about installing
+  rather than about data**: `create` on `consoleplugins`, and
+  `get`/`update`/`patch` on the one named after this plugin. That is how the
+  plugin registers itself with the console, which it must do at runtime because
+  a bundle cannot ship a `ConsolePlugin` — see the note on `operator-sdk`
+  versions below. `resourceNames` narrows every verb it can; it cannot narrow
+  `create`, because the object has no name yet when the request is admitted.
+  Nothing there reaches anything belonging to anyone.
+
+  **A third rule is a design change, not a tweak.** In `manifest` mode — what a
+  Helm install gets — even these two are absent, and CI asserts that separately.
+
+  **Under OLM a third rule does appear, and it is not ours.** Every CSV gets an
+  `OperatorCondition`, and OLM creates a Role — named after the CSV, owned by
+  that condition, labelled `olm.managed` — letting the operator `get`, `update`
+  and `patch` **its own**, restricted by `resourceNames` to that single object.
+  It cannot be declined and this plugin never uses it. Observed on 4.22 by
+  installing and looking, after the check in `hack/lab/bundle.sh` reported it.
+  All three are tolerated *by shape* — widen one, drop a `resourceNames`, or add
+  a fourth, and the check fails. Do not relax it to "OLM-managed Roles are
   fine": the Role holding whatever the CSV's `permissions` declares carries the
   same label.
 - **No service-account fallback.** A request without a bearer token is a 401.
@@ -134,12 +147,22 @@ file it touches and buries real changes.
   `dist/bundle/` is editing a build artefact. A second hand-written copy of the
   Deployment and the ConsolePlugin is the same defect as a fix authored on a
   release branch: two descriptions of one thing, and nothing comparing them.
-  The CSV declares **one `permissions` entry with an empty rule list and no
-  `clusterPermissions`** — which is how the no-rules invariant survives into
-  OLM, and not the same spelling the chart uses. See that invariant above
-  before changing it: dropping the block altogether leaves the ServiceAccount
-  uncreated and the pod unschedulable, and a bundle cannot ship the account
-  itself.
+  The CSV declares **one `permissions` entry with an empty rule list**, and
+  `clusterPermissions` carrying exactly the two rules that let the plugin write
+  its own `ConsolePlugin` — not the same spelling the chart uses. See the RBAC
+  invariant above before changing either: dropping the `permissions` block
+  leaves the ServiceAccount uncreated and the pod unschedulable, and a bundle
+  cannot ship the account itself.
+- **A bundle cannot ship a `ConsolePlugin`, and the failure surfaces only at
+  submission.** `operator-sdk bundle validate` rejects the kind — *unsupported
+  media type registry+v1 for bundle object* — up to and including **1.39.2**,
+  accepting it from **1.40.0**. `operator-registry` lists it in
+  `supportedResources` and OLM installs it without a murmur, so a cluster can
+  never tell you. The chart renders it into a **ConfigMap** instead, and an init
+  container applies it at startup with the pod's own namespace read through the
+  downward API — which also removes the older defect, that OLM templates nothing
+  inside a cluster-scoped manifest and so a shipped `ConsolePlugin` had to name
+  a namespace it could not know.
 
 ## Supporting more than one console generation
 
