@@ -632,7 +632,8 @@ depend on it, so turning it off is no longer a cleanup.
   `/var/tmp` is a tmpfs: it empties when the container restarts, so this has to be redone every
   time. The same goes for `helm`, also absent (`oc` and `kubectl` are present).
 - Building the OLM bundle needs `helm` and, to check it, `operator-sdk`; neither is preinstalled
-  and both are single binaries:
+  and both are single binaries. `hack/lab/tools.sh` now fetches and checksums them — set
+  `FIO_TOOLS_DIR=/var/tmp/fio-tools` so they survive somewhere with room. By hand:
   ```sh
   curl -sfL https://get.helm.sh/helm-v3.16.4-linux-amd64.tar.gz | tar xz -C /var/tmp \
     --strip-components=1 linux-amd64/helm
@@ -642,6 +643,12 @@ depend on it, so turning it off is no longer a cleanup.
   ```
   The `multiarch` validator additionally wants to pull the image and will warn that it cannot;
   there is no container runtime here.
+- **`opm` from `mirror.openshift.com` unpacks as `opm-rhel8`, not `opm`.** The OpenShift build
+  names the binary after the base it was built on. `hack/lab/tools.sh` finds it rather than
+  assuming the name; a script that assumed it looked for a file that was never there.
+  Its version need not match the cluster's — the binary writes the catalogue and never reaches
+  the cluster, which talks gRPC to the catalogue image, whose server comes from
+  `quay.io/operator-framework/opm:latest`. Point `OPM` at another binary if a lab ever needs one.
 - `yarn` is not on the PATH: use the committed binary,
   `node .yarn/releases/yarn-4.14.1.cjs <cmd>`.
 - `/home/agent` is a 1 GB tmpfs and the yarn cache lives under it, so an install eventually fails

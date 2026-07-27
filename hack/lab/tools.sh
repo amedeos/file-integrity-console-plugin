@@ -38,12 +38,28 @@ OCP_ZSTREAM_422=4.22.5
 # rendered from the chart, so there is no bundle without it — and opm builds
 # the catalogue. operator-sdk is fetched only under bundle.sh --validate,
 # because its one use here is the check CI already runs.
-HELM_VERSION=3.16.3
-HELM_SHA256=f5355c79190951eed23c5432a3b920e071f4c00a64f75e077de0dd4cb7b294ea
-OPM_VERSION=4.22.5
-OPM_SHA256=6bf95f88311026b2f0582eb180a053aa71ebd76e426b689f3da56535f0578392
+HELM_VERSION=3.16.4
+HELM_SHA256=fc307327959aa38ed8f9f7e66d45492bb022a66c3e5da6063958254b9767d179
 SDK_VERSION=1.42.3
 SDK_SHA256=887a3bb0d63ccc4ca47a522d0c8ffac56d9d5246f6a2bd886b4ed23eb2e2672f
+
+# opm's version does not have to match the cluster's, and this one is simply a
+# recent build rather than a choice about 4.22. Two reasons, both checked
+# rather than assumed:
+#
+#   - this binary never reaches the cluster. It writes the file-based catalogue
+#     and generates a Dockerfile whose base image is
+#     quay.io/operator-framework/opm:latest — that image, not this binary, is
+#     what serves the catalogue over gRPC once the CatalogSource runs it. The
+#     cluster consumes a gRPC service, not a file format it has to parse.
+#   - the file-based catalogue format has been stable across every generation
+#     this repository targets; 4.16 is well past its introduction.
+#
+# So a lab of another version needs nothing changed here. If one ever does,
+# set OPM to a binary of your own — see need_tools — rather than editing this,
+# because a version bumped without its checksum is worse than no pin at all.
+OPM_VERSION=4.22.5
+OPM_SHA256=6bf95f88311026b2f0582eb180a053aa71ebd76e426b689f3da56535f0578392
 
 # Where the binaries land. /tmp is a 1 GB tmpfs on some of the machines this
 # runs on — the three binaries fit, a Go module cache would not, which is why
@@ -150,40 +166,68 @@ fetch_verify() {
   mv "$out.part" "$out"
 }
 
-# need_tools <name>... — fetch the named tools and export HELM/OPM/SDK.
+# need_tools <name>... — make HELM, OPM and SDK point at usable binaries.
+#
+# Each honours a pre-set variable of the same name, so a lab that needs its own
+# build of one of these says so without editing this file and without losing
+# the pin on the other two:
+#
+#   OPM=/usr/local/bin/opm hack/lab/bundle.sh 0.1.0
 need_tools() {
   mkdir -p "$TOOLS_DIR"
-  local t
+  local t found
   for t in "$@"; do
     case $t in
     helm)
-      HELM=$TOOLS_DIR/helm
-      if [ ! -x "$HELM" ]; then
-        fetch_verify \
-          "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" \
-          "$HELM_SHA256" "$TOOLS_DIR/helm.tar.gz"
-        tar -xzf "$TOOLS_DIR/helm.tar.gz" -C "$TOOLS_DIR" \
-          --strip-components=1 linux-amd64/helm
-        chmod +x "$HELM"
+      if [ -n "${HELM:-}" ] && [ -x "${HELM:-}" ]; then
+        info "helm     $HELM (supplied)"
+      else
+        HELM=$TOOLS_DIR/helm
+        if [ ! -x "$HELM" ]; then
+          fetch_verify \
+            "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" \
+            "$HELM_SHA256" "$TOOLS_DIR/helm.tar.gz"
+          tar -xzf "$TOOLS_DIR/helm.tar.gz" -C "$TOOLS_DIR" \
+            --strip-components=1 linux-amd64/helm
+          chmod +x "$HELM"
+        fi
       fi
       export HELM
       ;;
     opm)
-      OPM=$TOOLS_DIR/opm
-      if [ ! -x "$OPM" ]; then
-        fetch_verify \
-          "https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/${OPM_VERSION}/opm-linux-${OPM_VERSION}.tar.gz" \
-          "$OPM_SHA256" "$TOOLS_DIR/opm.tar.gz"
-        tar -xzf "$TOOLS_DIR/opm.tar.gz" -C "$TOOLS_DIR"
-        chmod +x "$OPM"
+      if [ -n "${OPM:-}" ] && [ -x "${OPM:-}" ]; then
+        info "opm      $OPM (supplied)"
+      else
+        OPM=$TOOLS_DIR/opm
+        if [ ! -x "$OPM" ]; then
+          fetch_verify \
+            "https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/${OPM_VERSION}/opm-linux-${OPM_VERSION}.tar.gz" \
+            "$OPM_SHA256" "$TOOLS_DIR/opm.tar.gz"
+          # The OpenShift build names the binary after the base it was built
+          # on — opm-rhel8 today — not `opm`. Found rather than assumed,
+          # because assuming it cost one round of this script doing nothing.
+          tar -xzf "$TOOLS_DIR/opm.tar.gz" -C "$TOOLS_DIR"
+          found=$(find "$TOOLS_DIR" -maxdepth 1 -type f -name 'opm-rhel*' |
+            head -1)
+          [ -n "$found" ] ||
+            die "no opm binary in the tarball — it used to unpack as opm-rhel8"
+          mv "$found" "$OPM"
+          chmod +x "$OPM"
+        fi
       fi
+      export OPM
       ;;
     operator-sdk)
-      SDK=$TOOLS_DIR/operator-sdk
-      fetch_verify \
-        "https://github.com/operator-framework/operator-sdk/releases/download/v${SDK_VERSION}/operator-sdk_linux_amd64" \
-        "$SDK_SHA256" "$SDK"
-      chmod +x "$SDK"
+      if [ -n "${SDK:-}" ] && [ -x "${SDK:-}" ]; then
+        info "sdk      $SDK (supplied)"
+      else
+        SDK=$TOOLS_DIR/operator-sdk
+        fetch_verify \
+          "https://github.com/operator-framework/operator-sdk/releases/download/v${SDK_VERSION}/operator-sdk_linux_amd64" \
+          "$SDK_SHA256" "$SDK"
+        chmod +x "$SDK"
+      fi
+      export SDK
       ;;
     *) die "no rule to fetch '$t'" ;;
     esac
