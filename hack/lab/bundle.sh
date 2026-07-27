@@ -100,7 +100,7 @@ require_oc
 if [ "$CLEAN_ONLY" = false ]; then
   require_podman
   require_registry_auth
-  require_containers_policy
+  setup_containers_policy
 fi
 
 # The bundle is generated from the checkout, not from the tag, so the two have
@@ -216,7 +216,10 @@ info "channel  $CHANNEL"
 log "Building and pushing the bundle and catalogue images"
 need_tools opm
 
-podman build -f "$BUNDLE_DIR/bundle.Dockerfile" -t "$BUNDLE_IMAGE" "$BUNDLE_DIR"
+POLICY=(${PODMAN_POLICY_ARGS[@]+"${PODMAN_POLICY_ARGS[@]}"})
+
+podman build "${POLICY[@]}" -f "$BUNDLE_DIR/bundle.Dockerfile" \
+  -t "$BUNDLE_IMAGE" "$BUNDLE_DIR"
 podman push "$BUNDLE_IMAGE"
 
 CATALOG_DIR="$REPO_ROOT/dist/catalog"
@@ -225,7 +228,10 @@ mkdir -p "$CATALOG_DIR/$PLUGIN_NAME"
 
 {
   "$OPM" init "$PLUGIN_NAME" --default-channel="$CHANNEL" --output=yaml
-  "$OPM" render "$BUNDLE_IMAGE" --output=yaml
+  # HOME, because opm has no flag for the signature policy and
+  # containers/image resolves the user policy path from it. On a host with a
+  # policy of its own POLICY_HOME is $HOME and this changes nothing.
+  HOME="$POLICY_HOME" "$OPM" render "$BUNDLE_IMAGE" --output=yaml
   # `opm init` writes the package and `opm render` the bundle; the channel that
   # joins them is ours to state. One entry and no `replaces` — this catalogue
   # exists to install one version once, not to describe an upgrade path.
@@ -235,7 +241,7 @@ mkdir -p "$CATALOG_DIR/$PLUGIN_NAME"
 
 "$OPM" validate "$CATALOG_DIR"
 (cd "$REPO_ROOT/dist" && "$OPM" generate dockerfile catalog)
-podman build -f "$REPO_ROOT/dist/catalog.Dockerfile" \
+podman build "${POLICY[@]}" -f "$REPO_ROOT/dist/catalog.Dockerfile" \
   -t "$CATALOG_IMAGE" "$REPO_ROOT/dist"
 podman push "$CATALOG_IMAGE"
 

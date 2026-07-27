@@ -67,9 +67,10 @@ trap cleanup EXIT INT TERM
 log "Preflight"
 require_oc
 require_podman
-# Both images are pulled, so the same missing file that stops bundle.sh stops
-# this — better said here than as a container runtime error per generation.
-require_containers_policy
+# Both images are pulled, so the same missing signature policy that stops
+# bundle.sh stops this.
+setup_containers_policy
+POLICY=(${PODMAN_POLICY_ARGS[@]+"${PODMAN_POLICY_ARGS[@]}"})
 
 TOKEN=$(oc whoami --show-token 2>/dev/null) ||
   die "could not read a bearer token — the console needs one to reach the API server"
@@ -91,11 +92,16 @@ for gen in "${GENERATIONS[@]}"; do
   podman rm -f "fio-console-$slug" "fio-plugin-$slug" >/dev/null 2>&1 || true
   podman network exists "$net" || podman network create "$net" >/dev/null
 
+  # Pulled explicitly rather than by `podman run --pull`, because the signature
+  # policy has to be named and only pull takes the flag.
+  podman pull "${POLICY[@]}" "$plugin_image" >/dev/null
+  podman pull "${POLICY[@]}" "$console_image" >/dev/null
+
   # Plain HTTP: the serving certificate is issued by the cluster, and there is
   # no cluster here. The console reaches this over the container network, not
   # the host, so nothing is exposed by doing so.
   podman run -d --name "fio-plugin-$slug" --network "$net" \
-    --pull=newer "$plugin_image" \
+    "$plugin_image" \
     --listen=:9001 --tls-cert-file= --tls-key-file= >/dev/null
 
   # BRIDGE_RELEASE_VERSION is not decoration. With it unset the console skips
@@ -104,7 +110,7 @@ for gen in "${GENERATIONS[@]}"; do
   # The image tag and the declared version are independent, which is also how
   # a deliberate mismatch can be staged.
   podman run -d --name "fio-console-$slug" --network "$net" \
-    -p "$port:9000" --pull=newer \
+    -p "$port:9000" \
     -e BRIDGE_USER_AUTH=disabled \
     -e BRIDGE_K8S_MODE=off-cluster \
     -e BRIDGE_K8S_AUTH=bearer-token \

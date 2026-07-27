@@ -259,19 +259,48 @@ require_registry_auth() {
 }
 
 # Pulling an image needs a signature policy, and containers/image looks in two
-# fixed places for it. A host without one can still build and push — the first
-# thing that fails is a pull, which here is `opm render` reading back the bundle
-# image, several minutes in. The library's own message names the paths it tried
-# and nothing else, so this says what to do instead.
-require_containers_policy() {
-  [ -f /etc/containers/policy.json ] && return 0
-  [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/containers/policy.json" ] && return 0
-  # Printed flush left on purpose: this is meant to be pasted, and an indented
-  # heredoc terminator does not terminate anything.
-  die "no containers policy.json — pulling any image will fail.
+# fixed places for it: ~/.config/containers/policy.json and
+# /etc/containers/policy.json. A host without either can still build and push —
+# the first thing that fails is a pull, which is `opm render` reading the bundle
+# image back, several minutes in.
+#
+# Rather than requiring one to be installed, this writes a throwaway policy
+# under the tools directory and points each tool at it. Nothing outside that
+# directory changes, and a host that already has a policy keeps using its own.
+#
+# The two tools need pointing differently, which is why this is not one
+# variable. containers/image resolves the user policy path from $HOME and opm
+# exposes no flag for it, so opm is run with HOME redirected — verified, not
+# assumed. podman cannot be treated that way: $HOME also decides where its
+# image storage lives, so redirecting it would hide the images just built.
+# podman takes --signature-policy instead.
+POLICY_HOME=
+PODMAN_POLICY_ARGS=()
 
-  It is the file the containers-common package installs. Either install that
-  package, or write the permissive default yourself, which needs no root:
+setup_containers_policy() {
+  if [ -f /etc/containers/policy.json ] ||
+    [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/containers/policy.json" ]; then
+    POLICY_HOME=$HOME
+    return 0
+  fi
+
+  POLICY_HOME=$TOOLS_DIR/policy-home
+  local policy=$POLICY_HOME/.config/containers/policy.json
+  mkdir -p "$(dirname "$policy")"
+  printf '%s\n' '{"default":[{"type":"insecureAcceptAnything"}]}' >"$policy"
+  info "no host policy.json — using a throwaway one, $policy"
+
+  if podman build --help 2>/dev/null | grep -q -- '--signature-policy'; then
+    PODMAN_POLICY_ARGS=(--signature-policy "$policy")
+    return 0
+  fi
+
+  # Printed flush left on purpose: it is meant to be pasted, and an indented
+  # heredoc terminator terminates nothing.
+  die "this podman has no --signature-policy, so it cannot be told about the
+  throwaway policy. Install the containers-common package, or write the
+  permissive default once — it needs no root and is the file a configured
+  host already has:
 
 mkdir -p ~/.config/containers
 printf '%s\n' '{\"default\":[{\"type\":\"insecureAcceptAnything\"}]}' \\
