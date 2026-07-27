@@ -710,13 +710,15 @@ table in `AGENTS.md`, which records 4.16–4.18 as PatternFly 5.2 — true of th
 console loads, not of the React components it shares. What has *not* been established is the
 mechanism between that and the missing footer. Both these are still open:
 
-- whether webpack accepts the console's 4.278.0 for the plugin's request, or falls back to the
-  plugin's own copy. Read from the entry the console serves: the plugin *provides*
-  `@patternfly/react-core` 5.2.3 and *consumes* it at `^5.2.3`, against the console's 4.278.0. If
-  the module is shared as a singleton the console's copy wins regardless, and webpack says so in
-  the **browser** console — `Unsatisfied version … of shared singleton module`. That message
-  present or absent is the whole answer, and it costs one look at a running console;
-- whether PatternFly 4's `Modal` renders `actions` the way 5's does.
+- ~~whether webpack imposes the console's 4.278.0~~ **Asked and answered: it does not.** The
+  plugin *provides* `@patternfly/react-core` 5.2.3 and *consumes* it at `^5.2.3`, against the
+  console's 4.278.0, so a singleton share would have logged `Unsatisfied version … of shared
+  singleton module` in the browser. Reloading the 4.16 console with devtools open and filtering on
+  `patternfly` produced **nothing at all**. The plugin is therefore rendering with its own 5.2.3,
+  and the shared PatternFly 4 is context rather than cause. The leading hypothesis is dead;
+- what does render the dialog, then. The remaining discriminator is `FileContentModal` on the same
+  console — the only other component on the branch using `actions={[...]}` — and it has not been
+  looked at yet.
 
 Answer those before choosing a fix, because they point at different ones: build the branch against
 PatternFly 4, or write a footer that both majors render.

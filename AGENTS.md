@@ -306,11 +306,16 @@ Two things this buys that a cluster does not:
   scope registers `@patternfly/react-core` out of the one named
   `vendor-patternfly-4-shared`: version **4.278.0**, with `react-table` 4.113.6
   beside it. The PatternFly 5 bundle is what the console renders *itself* with.
-  So a plugin compiled against 5.2 is offered 4.278.0 at runtime. Read off a
-  running console with `curl`, not inferred — and it is the standing suspect
-  for the missing dialog footer recorded in `docs/STATUS.md`. Before designing
-  around it, establish whether the SDK shares these as singletons, which would
-  make the console's copy win a version it does not satisfy.
+  So a plugin compiled against 5.2 is *offered* 4.278.0 at runtime. Read off a
+  running console with `curl`, not inferred.
+
+  **Offered is not used.** The plugin's own entry provides `react-core` 5.2.3
+  and consumes it at `^5.2.3`; a singleton share would then have made the
+  console's copy win anyway and logged `Unsatisfied version … of shared
+  singleton module` in the browser. Reloading a 4.16 console with devtools open
+  and filtering on `patternfly` produced nothing, so the plugin renders with its
+  own copy and this is background, not a live hazard. It stops being background
+  the moment anything relies on a component the plugin does not bundle.
 - **The PatternFly floor can be two different numbers.** "Pin to the floor" is
   one rule but not one version: console 4.19 declares `@patternfly/patternfly`
   at `^6.2.3` and `react-core`, `react-icons` and `react-table` at `^6.2.2`,
