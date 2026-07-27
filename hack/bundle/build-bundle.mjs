@@ -145,6 +145,18 @@ const rendered = execFileSync(
     `plugin.imagePullPolicy=${pullPolicy}`,
     '--set',
     'plugin.jobs.patchConsoles.enabled=false',
+    // The ConsolePlugin is created by an init container instead of shipped.
+    // `operator-sdk bundle validate` rejects the kind as a bundle manifest —
+    // "unsupported media type registry+v1 for bundle object" — in every
+    // release up to 1.39.2, and the community pipeline runs one of those. OLM
+    // accepts it, which is why installing on a cluster never showed this.
+    //
+    // It is also the better answer regardless: OLM templates nothing inside a
+    // cluster-scoped manifest, so a shipped ConsolePlugin has to name a
+    // namespace it cannot know, and an install anywhere else produces a plugin
+    // the console cannot reach. The init container reads the pod's own.
+    '--set',
+    'plugin.consolePlugin.mode=initContainer',
   ],
   { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 },
 );
@@ -173,7 +185,13 @@ const take = (kind) => {
 };
 
 const deployment = take('Deployment');
-const consolePlugin = take('ConsolePlugin');
+
+// The ClusterRole and its binding are lifted into the CSV rather than shipped.
+// OLM creates cluster RBAC from `clusterPermissions` and takes ownership of it,
+// so the objects go when the CSV goes; a shipped ClusterRoleBinding would name
+// a ServiceAccount OLM has not created yet, and would outlive the uninstall.
+const clusterRole = take('ClusterRole');
+take('ClusterRoleBinding');
 
 // The chart's ServiceAccount does not ship, and cannot: `operator-sdk bundle
 // validate` rejects any ServiceAccount in a bundle whose name matches one a
@@ -219,10 +237,32 @@ const extras = objects;
 // ignored or, worse, disagree with the install.
 for (const o of [...extras, deployment]) delete o.metadata.namespace;
 
-if (consolePlugin.spec?.backend?.service?.namespace !== NAMESPACE) {
+// The ConsolePlugin now travels as data, in a ConfigMap the init container
+// applies after replacing the namespace with the pod's own. Checked here
+// because a bundle that shipped the ConfigMap without the init container, or
+// the other way round, would install an operator that registers nothing — and
+// nothing else in the pipeline looks at the pair.
+const consolePluginConfigMap = extras.find(
+  (o) => o.kind === 'ConfigMap' && o.data?.['consoleplugin.yaml'],
+);
+if (!consolePluginConfigMap) {
   throw new Error(
-    `the rendered ConsolePlugin names ${consolePlugin.spec?.backend?.service?.namespace}, ` +
-      `not ${NAMESPACE} — the bundle would install a plugin the console cannot reach`,
+    'the chart rendered no ConfigMap carrying consoleplugin.yaml; the init ' +
+      'container would have nothing to apply',
+  );
+}
+const initContainers = deployment.spec.template.spec.initContainers ?? [];
+if (!initContainers.some((c) => c.args?.includes('ensure-consoleplugin'))) {
+  throw new Error(
+    'the Deployment has no init container running `ensure-consoleplugin`; the ' +
+      'ConsolePlugin would never be created',
+  );
+}
+if (objects.some((o) => o.kind === 'ConsolePlugin')) {
+  throw new Error(
+    'the chart rendered a ConsolePlugin manifest; `operator-sdk bundle ' +
+      'validate` rejects that kind in a bundle up to 1.39.2, which is what the ' +
+      'community pipeline runs',
   );
 }
 
@@ -248,18 +288,31 @@ csv.spec.icon = [
   },
 ];
 
-// One `permissions` entry with no rules, and no `clusterPermissions` at all.
-// The empty list is the invariant, not an omission waiting to be filled: every
-// call the backend makes against the API server is made with the browsing
-// user's token, so the pod's own identity is meant to be able to do nothing.
-// This is the only way to say that in OLM and still get the ServiceAccount
-// created — see the note above the ServiceAccount. CI asserts the list stays
-// empty, as it asserts the chart renders no Role.
+// One `permissions` entry with no rules, and `clusterPermissions` carrying
+// exactly what the chart's ClusterRole grants: the right to create this
+// plugin's own ConsolePlugin object and to keep it up to date, narrowed by
+// `resourceNames` everywhere `resourceNames` is allowed to narrow.
+//
+// The namespaced list stays empty, and its emptiness is still the invariant:
+// every call the backend makes on behalf of a browsing user is made with that
+// user's token. The cluster-scoped rules are not that path — they register the
+// plugin with the console and reach no data belonging to anyone. The entry also
+// has to exist at all, because OLM creates the ServiceAccount from
+// `permissions` and from nothing else; see the note above the ServiceAccount.
+//
+// CI asserts both halves: the namespaced rules stay empty, and the cluster
+// rules stay these two and nothing more.
 csv.spec.install = {
   strategy: 'deployment',
   spec: {
     permissions: [
       { serviceAccountName: serviceAccount.metadata.name, rules: [] },
+    ],
+    clusterPermissions: [
+      {
+        serviceAccountName: serviceAccount.metadata.name,
+        rules: clusterRole.rules,
+      },
     ],
     deployments: [
       {
@@ -297,7 +350,7 @@ fs.writeFileSync(
   ),
   dump(csv),
 );
-for (const o of [consolePlugin, ...extras]) {
+for (const o of extras) {
   fs.writeFileSync(path.join(OUT, 'manifests', manifestName(o)), dump(o));
 }
 
