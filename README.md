@@ -51,9 +51,9 @@ half-way.
 
 ### File retrieve on 4.16 is not verified yet
 
-The optional file-retrieve feature is off by default everywhere, and on 4.16 it
-should stay off until someone has checked it against a real cluster of that
-version.
+File retrieve is on by default, and on 4.16 it should be turned off
+(`backend.features.fileRetrieve=false`) until someone has checked it against a
+real cluster of that version.
 
 Not because it is expected to fail — because it runs different code there, and
 **only** there. The API server's WebSocket exec subprotocol is behind
@@ -92,8 +92,10 @@ the plugin, read the same file on the node, and compare the byte count and the
 - **Re-init** — re-initialise the AIDE database for one node or for every
   currently failing node, behind a confirmation that says plainly that the
   currently reported changes stop being reported.
-- **File retrieve** (optional, off by default) — show the current contents of a
-  reported file, read from the node itself. See [Security model](#security-model).
+- **File retrieve** — show the current contents of a reported file, read from
+  the node itself. On by default, and gated by the browsing user's own
+  `pods/exec` rights rather than by this switch. See
+  [Security model](#security-model).
 
 The UI ships English and Italian locales.
 
@@ -142,9 +144,13 @@ that the plugin never lends its own authority to a caller:
 - Every attempt, allowed or denied, is written to the pod log as a structured
   audit record with user, node, path and outcome. See
   [Where the audit trail lives](#where-the-audit-trail-lives).
-- The whole feature is **off by default** (`backend.features.fileRetrieve`).
-  When off, the endpoint answers 501 and the backend does not even build a
-  Kubernetes client.
+- The whole feature can be switched off (`backend.features.fileRetrieve`), and
+  then the endpoint answers 501 and the backend does not even build a Kubernetes
+  client. It is **on by default**, because switching it off takes nothing away
+  from anyone: every read already runs as the browsing user, is refused unless
+  they hold `pods/exec` in the scan namespace, and is recorded against their
+  name. Off means the path does not exist at all — worth choosing where that
+  matters, and not the state most installations want.
 
 ### Where the audit trail lives
 
@@ -215,7 +221,93 @@ Multi-arch is cheap to add when someone needs it: the web assets are
 architecture-independent and the Go binary is `CGO_ENABLED=0`, so both build
 stages stay native and only the runtime layer varies — no emulation.
 
+### Install from OperatorHub
+
+Published as a community operator, so it appears in **Operators → OperatorHub**
+under the name *File Integrity Console Plugin*.
+
+**On the install form, set "Console plugin" to Enable.** It defaults to
+*Disable*, with a warning about trusting the plugin, and installing without
+changing it leaves the operator running and **no menu entry at all** — no error,
+nothing in the console's face. That default is not about this plugin: the
+console trusts exactly one catalogue, `redhat-operators`
+([`isCatalogSourceTrusted`][trusted]), and every community operator that ships a
+console plugin gets the same treatment. If it is already installed and there is
+no menu entry, this is why:
+
+```sh
+oc patch consoles.operator.openshift.io cluster --type=json \
+  -p '[{"op":"add","path":"/spec/plugins/-","value":"file-integrity-console-plugin"}]'
+```
+
+**Install it into `openshift-file-integrity`**, which the form pre-selects as
+*Operator recommended Namespace*. The `ConsolePlugin` the bundle ships names
+that namespace literally — OLM fills nothing in inside a cluster-scoped
+manifest — so installing elsewhere leaves the console unable to fetch the
+plugin's assets. That failure is at least visible: the plugin is listed as
+failed under **Administration → Cluster Settings → Console plugins**.
+
+The bundle offers only the single-namespace install mode, and that is why the
+form defaults the way it does. It is also the only mode that works: a global
+install would put the pod in `openshift-operators`, which is not the namespace
+the ConsolePlugin names. `openshift-file-integrity` is where the File Integrity
+Operator runs, and the plugin belongs beside the operator it reads.
+
+The bundle grants its ServiceAccount nothing, exactly as the chart does — the
+CSV declares one permissions entry with an empty rule list and no cluster
+permissions. OLM turns that into the account, plus a Role and a RoleBinding
+carrying no rules, so unlike the chart install you will see two RBAC objects
+here. They permit nothing; the backend acts only as the user browsing the
+console.
+
+The console restarts itself once the plugin is enabled, so the manifest-cache
+problem described under [Upgrading to a new build](#upgrading-to-a-new-build)
+does not arise on this path.
+
+**Configuring it afterwards** goes through the Subscription, not through Helm
+values, which do not exist here. A Subscription can override the container's
+environment by name, and every setting the chart exposes is read from the
+environment for exactly that reason — so to turn on reading files from nodes:
+
+```sh
+oc patch subscription file-integrity-console-plugin \
+  -n openshift-file-integrity --type=merge -p '
+spec:
+  config:
+    env:
+      - name: PLUGIN_ENABLE_FILE_RETRIEVE
+        value: "true"'
+```
+
+The names are the flags in [Values worth knowing](#values-worth-knowing),
+upper-cased with hyphens as underscores and a `PLUGIN_` prefix:
+`PLUGIN_MAX_FILE_BYTES`, `PLUGIN_FIO_NAMESPACE`, and so on. Read the security
+note under [File retrieve](#security-model) before enabling it — it is off by
+default deliberately, on both install paths.
+
+A Subscription can also mount volumes, which is how a deny list of your own
+reaches the pod: mount a ConfigMap and point `PLUGIN_EXTRA_DENY_LIST_FILE` at
+the file inside it.
+
+**Uninstalling leaves the `ConsolePlugin` behind.** It is cluster-scoped and OLM
+gives it no owner reference, so removing the operator does not remove it, and
+the console is left with a plugin name that resolves to nothing — it logs a
+failed load on every page view. The chart has a pre-delete Job for this; a
+bundle cannot, because `Job` is not a kind OLM accepts. Remove it by hand:
+
+```sh
+oc delete consoleplugin file-integrity-console-plugin
+oc patch consoles.operator.openshift.io cluster --type=json \
+  -p '[{"op":"remove","path":"/spec/plugins/0"}]'   # check the index first
+```
+
+[trusted]: https://github.com/openshift/console/blob/master/frontend/packages/operator-lifecycle-manager/src/utils.tsx
+
 ### Install the chart
+
+Nothing about the chart changed when the bundle arrived, and it remains the way
+to install from a checkout, into a namespace of your choosing, or with a
+non-default configuration.
 
 ```sh
 helm install file-integrity-console-plugin charts/file-integrity-console-plugin \
@@ -223,11 +315,18 @@ helm install file-integrity-console-plugin charts/file-integrity-console-plugin 
   --set plugin.image=quay.io/asalvati/file-integrity-console-plugin:0.1.0
 ```
 
-To also enable reading files from nodes:
+To switch off reading files from nodes:
 
 ```sh
-  --set backend.features.fileRetrieve=true
+  --set backend.features.fileRetrieve=false
 ```
+
+The chart renders that, and every other tunable setting, as an environment
+variable on the container rather than as a command-line flag. The binary reads
+each one as the default for the matching flag, so a flag still wins and nothing
+that passed flags before has changed. The reason is the OLM path: a Subscription
+can override a container's environment but not its arguments, so as flags these
+settings were unreachable from OperatorHub.
 
 The chart runs a post-install Job that adds the plugin to
 `consoles.operator.openshift.io/cluster`, and a pre-delete Job that removes it
@@ -267,7 +366,7 @@ rollout reports success while running the previous binary.
 | `plugin.replicas` | `2` | |
 | `plugin.name` | chart name | ConsolePlugin name. It is baked into the frontend's proxy URL (`PLUGIN_NAME` in `src/constants.ts`); changing one without the other breaks file retrieve. |
 | `backend.fileIntegrityNamespace` | `openshift-file-integrity` | Where the operator runs its scans. |
-| `backend.features.fileRetrieve` | `false` | Enables reading files from nodes. |
+| `backend.features.fileRetrieve` | `true` | Reading files from nodes. Set to `false` to make the endpoint answer 501 and skip building a Kubernetes client at all; it grants nothing on its own, since every read runs as the calling user. |
 | `backend.maxFileBytes` | `1048576` | Bytes returned before the response is flagged truncated. |
 | `backend.denyList` | `[]` | **Replaces** the built-in deny globs. |
 | `backend.extraDenyList` | `[]` | **Adds** to whichever list is in effect — the safe way to harden, since a copied default list goes stale. |
@@ -345,6 +444,50 @@ git tag v0.1.1 && git push origin v0.1.1
 ```
 
 Quay builds the tag into `quay.io/asalvati/file-integrity-console-plugin:0.1.1`.
+
+### Publishing the OLM bundle
+
+The bundle is **generated from the chart**, never written beside it, so there is
+one description of what an installation creates and it cannot drift:
+
+```sh
+node hack/bundle/build-bundle.mjs        # -> dist/bundle/, not committed
+```
+
+Only the parts a chart has no opinion about — display name, description, icon,
+install modes, annotations — are written by hand, in `hack/bundle/csv-base.yaml`.
+Which console generation the bundle targets is decided by the version in
+`package.json`: the suffix selects a row of the table in `build-bundle.mjs`, and
+that table lives on `main` and is merged forward, for the same reason
+`.github/branch-delta.json` does.
+
+| branch | version | published to catalogues | channel |
+|---|---|---|---|
+| `main` | `X.Y.Z` | `v4.22` and later | `stable-4.22` |
+| `release-4.19` | `X.Y.Z-ocp4.19` | `v4.19-v4.21` | `stable-4.19` |
+| `release-4.16` | `X.Y.Z-ocp4.16` | `v4.16-v4.18` | `stable-4.16` |
+
+One package, three bundles that never meet: each per-OpenShift catalogue is
+built from the bundles whose range covers it, so a 4.16 cluster is never offered
+the 4.22 build. A channel per generation says the same thing a second way — in
+semver `0.1.0-ocp4.16` is a *prerelease* of `0.1.0` and sorts before it, so a
+single shared channel would describe an upgrade from the 4.16 build to the 4.22
+one.
+
+**Tag first.** A bundle names an immutable image, so `vX.Y.Z` has to exist and
+Quay has to have built it before the bundle is generated for submission.
+
+Then copy `dist/bundle/manifests` and `dist/bundle/metadata` into a fork of
+[`community-operators-prod`][cop] at
+`operators/file-integrity-console-plugin/<version>/` and open a pull request
+there. `dist/bundle/bundle.Dockerfile` is not part of that submission; it is
+there to build a bundle image for a local catalogue when testing.
+
+CI generates and validates the bundle on every pull request, so a change to the
+chart that would break it is caught here rather than in someone else's
+repository.
+
+[cop]: https://github.com/redhat-openshift-ecosystem/community-operators-prod
 
 ## Licence
 

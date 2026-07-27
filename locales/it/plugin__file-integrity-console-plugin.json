@@ -59,7 +59,7 @@
   "Re-initialize the baseline for {{node}}?": "Reinizializzare il riferimento per {{node}}?",
   "Re-initializing": "Reinizializzazione in corso",
   "Reading ConfigMap {{name}} failed: {{message}}": "Lettura della ConfigMap {{name}} fallita: {{message}}",
-  "Reading files from nodes is disabled in this installation. An administrator can enable it in the plugin Helm values.": "La lettura dei file dai nodi è disabilitata in questa installazione. Un amministratore può abilitarla nei values Helm del plugin.",
+  "Reading files from nodes is disabled in this installation. A cluster administrator can enable it; see the plugin documentation.": "La lettura dei file dai nodi è disabilitata in questa installazione. Un amministratore del cluster può abilitarla; vedere la documentazione del plugin.",
   "Recorded in baseline": "Registrato nel riferimento",
   "Removed": "Rimossi",
   "Request failed": "Richiesta fallita",
