@@ -308,7 +308,7 @@ jobs:
 
       # A git tag names the released image, and the plugin manifest carries a
       # version of its own that the console displays. If these drift, a release
-      # tagged v0.1.1 ships an image announcing itself as something else.
+      # tagged 0.1.1 ships an image announcing itself as something else.
       - name: Versions agree
         run: |
           node - <<'EOF'
