@@ -621,6 +621,18 @@ only by running it:
    supported answered no on a podman that accepts it. The probe invokes podman with the flag and a
    context that does not exist: only an absent flag says `unknown flag`.
 
+Verified from outside the script afterwards, because a script is a poor witness to itself: both
+CSVs `Succeeded` — ours and `file-integrity-operator.v1.4.0`, untouched — one OperatorGroup, FIO's
+deployment still 1/1.
+
+And `console.operator` read back as
+`["monitoring-plugin","networking-console-plugin","odf-console","file-integrity-console-plugin"]`.
+That cluster had **three other plugins already enabled**. Both halves of the script handle the list
+element-wise — the install appends, the teardown removes its own index — so those three survived
+untouched. A merge patch on the whole field would have been shorter to write and would have
+switched off monitoring, networking and ODF on somebody else's cluster. Now observed rather than
+argued.
+
 And one finding that was not about the script at all — see the RBAC invariant in `AGENTS.md`.
 **OLM grants the ServiceAccount one rule regardless of what the bundle declares**: `get`, `update`
 and `patch` on its own `OperatorCondition`, restricted by `resourceNames` to that single object.
