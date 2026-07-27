@@ -92,6 +92,17 @@ plugin_index() {
 log "Preflight"
 require_oc
 
+# Everything the run needs is checked here rather than where it is first used.
+# The alternative is what happened the first time this script was run for real:
+# a bundle generated, an image built and pushed, and then a failure to pull it
+# back because the host had no containers policy — minutes in, for something
+# knowable at the start. --clean-only touches no image, so it is spared.
+if [ "$CLEAN_ONLY" = false ]; then
+  require_podman
+  require_registry_auth
+  require_containers_policy
+fi
+
 # The bundle is generated from the checkout, not from the tag, so the two have
 # to be the same thing. Refusing here beats installing a bundle whose CSV says
 # one version and whose image says another.
@@ -203,8 +214,6 @@ info "channel  $CHANNEL"
 # --------------------------------------------------------------------------
 
 log "Building and pushing the bundle and catalogue images"
-require_podman
-require_registry_auth
 need_tools opm
 
 podman build -f "$BUNDLE_DIR/bundle.Dockerfile" -t "$BUNDLE_IMAGE" "$BUNDLE_DIR"

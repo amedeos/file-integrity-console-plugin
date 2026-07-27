@@ -67,6 +67,9 @@ trap cleanup EXIT INT TERM
 log "Preflight"
 require_oc
 require_podman
+# Both images are pulled, so the same missing file that stops bundle.sh stops
+# this — better said here than as a container runtime error per generation.
+require_containers_policy
 
 TOKEN=$(oc whoami --show-token 2>/dev/null) ||
   die "could not read a bearer token — the console needs one to reach the API server"

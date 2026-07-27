@@ -258,6 +258,26 @@ require_registry_auth() {
     die "not logged in to quay.io — run 'podman login quay.io'"
 }
 
+# Pulling an image needs a signature policy, and containers/image looks in two
+# fixed places for it. A host without one can still build and push — the first
+# thing that fails is a pull, which here is `opm render` reading back the bundle
+# image, several minutes in. The library's own message names the paths it tried
+# and nothing else, so this says what to do instead.
+require_containers_policy() {
+  [ -f /etc/containers/policy.json ] && return 0
+  [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/containers/policy.json" ] && return 0
+  # Printed flush left on purpose: this is meant to be pasted, and an indented
+  # heredoc terminator does not terminate anything.
+  die "no containers policy.json — pulling any image will fail.
+
+  It is the file the containers-common package installs. Either install that
+  package, or write the permissive default yourself, which needs no root:
+
+mkdir -p ~/.config/containers
+printf '%s\n' '{\"default\":[{\"type\":\"insecureAcceptAnything\"}]}' \\
+  > ~/.config/containers/policy.json"
+}
+
 # cluster_generation — 4.16 / 4.19 / 4.22 from the cluster's own version
 cluster_generation() {
   local v
