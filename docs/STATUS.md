@@ -675,22 +675,28 @@ Reported from `hack/lab/console.sh 0.1.0 4.16`, the first time that build had be
 console since it was published. Clicking **Re-initialize baseline** on a node opens the
 confirmation, but its buttons are not usable. Everything else on that console worked.
 
-Deferred deliberately, not forgotten. Two questions decide the diagnosis and neither has been
-answered yet, so nothing below is more than a starting point:
+Deferred deliberately, not forgotten.
 
-- **Are the buttons absent, or present and greyed out?** Absent means the PatternFly 5 `Modal` is
-  not rendering its footer from the `actions` prop. Greyed out means `isDisabled={submitting}` is
-  stuck true, which would be a state bug in `ReinitActions.tsx` and nothing to do with PatternFly.
-  `submitting` initialises to `false`, so the second reading needs an explanation the code does
-  not currently offer.
-- **Does *View file* show its Download and Close buttons on the same console?** It is the same
-  `actions={[...]}` spelling in `FileContentModal.tsx`. If those appear, the fault is local to
-  `ReinitActions`. If they do not, it is the `Modal` the console *shares* with the plugin — and
-  that would affect the whole 4.16–4.18 branch rather than one dialog.
+**The buttons are absent, not disabled** — the dialog shows its warning and body text and then
+nothing below. So this is not `isDisabled={submitting}` stuck true; the footer is not being
+rendered at all, and `ReinitActions.tsx` on this branch supplies it through PatternFly 5's
+`actions={[...]}` prop rather than a `ModalFooter` child.
 
-The second question is why this belongs in the notes rather than only in an issue: PatternFly is a
-shared module on 4.16–4.18, so the component that renders may come from the console's build rather
-than the one in the lockfile, and CI cannot see the difference.
+**"It works on 4.19 and 4.22" is not evidence about this.** Those branches carry `main`'s markup —
+PatternFly 6, with `ModalFooter` — because no component is in `release-4.19`'s declared delta. The
+`actions` spelling exists only on `release-4.16`, so the working consoles are running different
+code, not the same code somewhere else. Stating it as a control was wrong.
+
+The one comparison that does discriminate is on the 4.16 console itself: `FileContentModal.tsx` is
+the only other component using `actions={[...]}` there. If *View file* shows its Download and
+Close buttons, the fault is local to `ReinitActions`. If it does not, the `Modal` is ignoring
+`actions` and every dialog on the 4.16–4.18 branch is affected.
+
+That second outcome is why this belongs in the notes and not only in an issue: PatternFly is a
+module the console *shares* with plugins on 4.16–4.18, so the component that renders may come from
+the console's own build rather than the one in the lockfile — `~5.2.2` here — and CI cannot see the
+difference. jsdom cannot either: it measures every element as zero-sized, so no unit test can
+assert that a button is there to be clicked.
 
 **Left over:** on a real 4.16 cluster, the SPDY exec fallback — read a file through the plugin, read
 it on the node, compare byte count and `sha256` before looking at the interface. The lab leftovers
