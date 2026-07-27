@@ -692,11 +692,34 @@ the only other component using `actions={[...]}` there. If *View file* shows its
 Close buttons, the fault is local to `ReinitActions`. If it does not, the `Modal` is ignoring
 `actions` and every dialog on the 4.16–4.18 branch is affected.
 
-That second outcome is why this belongs in the notes and not only in an issue: PatternFly is a
-module the console *shares* with plugins on 4.16–4.18, so the component that renders may come from
-the console's own build rather than the one in the lockfile — `~5.2.2` here — and CI cannot see the
-difference. jsdom cannot either: it measures every element as zero-sized, so no unit test can
-assert that a button is there to be clicked.
+**And the console shares PatternFly 4 with plugins, not 5.** Read off the running 4.16 console
+rather than inferred. Its `index.html` loads two PatternFly bundles:
+
+```
+vendor-patternfly-4-shared~main-chunk-…js
+vendor-patternfly-5~main-chunk-…js
+```
+
+The shared scope registers `@patternfly/react-core` from a module that lives in the **4-shared**
+chunk, whose bundled `package.json` reads `"version":"4.278.0"`; `@patternfly/react-table` is
+there too, at 4.113.6. The PatternFly 5 bundle is the console's own. So a plugin importing
+`@patternfly/react-core` is offered **4.278.0**, while `release-4.16` compiles against `~5.2.2`.
+
+That makes the branch's whole PatternFly story need re-checking, and it is a correction to the
+table in `AGENTS.md`, which records 4.16–4.18 as PatternFly 5.2 — true of the stylesheet the
+console loads, not of the React components it shares. What has *not* been established is the
+mechanism between that and the missing footer. Both these are still open:
+
+- whether webpack accepts the console's 4.278.0 for a `~5.2.2` request because the SDK declares
+  these shared modules as singletons, or falls back to the plugin's own copy;
+- whether PatternFly 4's `Modal` renders `actions` the way 5's does.
+
+Answer those before choosing a fix, because they point at different ones: build the branch against
+PatternFly 4, or write a footer that both majors render.
+
+This is also why the defect belongs in the notes and not only in an issue. CI cannot see any of
+it — the component that renders comes from the console at runtime — and neither can jsdom, which
+measures every element as zero-sized, so no unit test can assert that a button is there to click.
 
 **Left over:** on a real 4.16 cluster, the SPDY exec fallback — read a file through the plugin, read
 it on the node, compare byte count and `sha256` before looking at the interface. The lab leftovers
