@@ -1,0 +1,426 @@
+#!/usr/bin/env bash
+#
+# Install the OLM bundle on a cluster from a one-bundle catalogue, and check
+# what it produced.
+#
+# Everything this does was done by hand first, one `oc` command at a time, and
+# the defects that mattered were found by looking at the result rather than by
+# any validator. The install half is the boring half; the checks at the end are
+# the reason this file exists.
+#
+#   hack/lab/bundle.sh 0.1.0                 tear down, install, check
+#   hack/lab/bundle.sh 0.1.0 --clean-only    remove an installation and stop
+#   hack/lab/bundle.sh 0.1.0 --keep-catalog  leave the CatalogSource in place
+#
+# Requires: oc logged in, podman, and a quay.io credential.
+
+set -euo pipefail
+
+# shellcheck source=hack/lab/tools.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/tools.sh"
+
+VERSION=${1:-}
+[ $# -gt 0 ] && shift
+CLEAN_ONLY=false
+KEEP_CATALOG=false
+
+for arg in "$@"; do
+  case $arg in
+  --clean-only) CLEAN_ONLY=true ;;
+  --keep-catalog) KEEP_CATALOG=true ;;
+  *) die "unknown option '$arg'" ;;
+  esac
+done
+
+[ -n "$VERSION" ] || die "usage: $0 <version> [--clean-only] [--keep-catalog]
+  <version> is the release version, which is also the git tag and the image
+  tag — 0.1.0 on main, 0.1.0-ocp4.19 on release-4.19."
+
+BUNDLE_IMAGE="$IMAGE_REPO:bundle-$VERSION"
+CATALOG_IMAGE="$IMAGE_REPO:catalog-$VERSION"
+PLUGIN_IMAGE="$IMAGE_REPO:$VERSION"
+
+# --------------------------------------------------------------------------
+# Small helpers used below
+
+wait_for() {
+  local what=$1 seconds=$2
+  shift 2
+  local waited=0
+  until "$@" >/dev/null 2>&1; do
+    [ "$waited" -ge "$seconds" ] &&
+      die "timed out after ${seconds}s waiting for $what"
+    sleep 5
+    waited=$((waited + 5))
+  done
+  info "$what (${waited}s)"
+}
+
+catalog_ready() {
+  [ "$(oc get catalogsource "$CATALOG_SOURCE" -n "$MARKETPLACE_NS" \
+    -o jsonpath='{.status.connectionState.lastObservedState}')" = READY ]
+}
+
+csv_succeeded() {
+  [ "$(oc get csv "$CSV_NAME" -n "$NAMESPACE" \
+    -o jsonpath='{.status.phase}')" = Succeeded ]
+}
+
+deployment_ready() {
+  local want got
+  want=$(oc get deployment "$PLUGIN_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.replicas}')
+  got=$(oc get deployment "$PLUGIN_NAME" -n "$NAMESPACE" -o jsonpath='{.status.readyReplicas}')
+  [ -n "$want" ] && [ "$want" = "$got" ]
+}
+
+# The console.operator entry is what the install form's radio sets. Nothing
+# does it for a scripted Subscription, and without it the operator runs and no
+# menu entry appears — a symptom this repository has chased more than once.
+plugin_index() {
+  oc get console.operator.openshift.io cluster \
+    -o jsonpath='{range .spec.plugins[*]}{@}{"\n"}{end}' 2>/dev/null |
+    grep -n "^${PLUGIN_NAME}$" | cut -d: -f1 | head -1
+}
+
+# --------------------------------------------------------------------------
+
+log "Preflight"
+require_oc
+
+# The bundle is generated from the checkout, not from the tag, so the two have
+# to be the same thing. Refusing here beats installing a bundle whose CSV says
+# one version and whose image says another.
+CHECKOUT_VERSION=$(node -p "require('$REPO_ROOT/package.json').version")
+[ "$CHECKOUT_VERSION" = "$VERSION" ] ||
+  die "this checkout is version $CHECKOUT_VERSION, not $VERSION.
+  The bundle is generated from the working tree, so check out the branch or
+  tag that carries $VERSION first."
+
+# A generation's plugin does not run on another generation's console — that is
+# what the @console/pluginAPI bound is for, and crossing it produces a plugin
+# that never executes rather than an error anyone would recognise.
+CLUSTER_GEN=$(cluster_generation)
+case $VERSION in
+*-ocp4.16) WANT_GEN=4.16 ;;
+*-ocp4.19) WANT_GEN=4.19 ;;
+*) WANT_GEN=4.22 ;;
+esac
+[ "$CLUSTER_GEN" = "$WANT_GEN" ] ||
+  die "this cluster is generation $CLUSTER_GEN and $VERSION targets $WANT_GEN.
+  The console would refuse the plugin, which is the version gate working.
+  Use hack/lab/console.sh to exercise another generation without a cluster."
+info "generation $CLUSTER_GEN"
+
+# --------------------------------------------------------------------------
+
+log "Removing any previous installation"
+
+# Every deletion below names its object. This namespace belongs to the File
+# Integrity Operator as much as to the plugin, so a sweep — `oc delete all`, a
+# label selector that happens to match, deleting the namespace — would take FIO
+# down as a side effect. Nothing here is allowed to be that convenient.
+
+if [ -n "$(oc get secret -n "$NAMESPACE" -l "owner=helm,name=$PLUGIN_NAME" \
+  -o name 2>/dev/null)" ]; then
+  die "a Helm release of $PLUGIN_NAME exists in $NAMESPACE.
+  Two installations of one plugin would fight over one ConsolePlugin. Remove it
+  with 'helm uninstall $PLUGIN_NAME -n $NAMESPACE' and re-run — deliberately
+  not done here, because which installation is wanted is a decision."
+fi
+
+oc delete subscription "$PLUGIN_NAME" -n "$NAMESPACE" --ignore-not-found
+
+for csv in $(oc get csv -n "$NAMESPACE" \
+  -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null |
+  grep "^${PLUGIN_NAME}\." || true); do
+  oc delete csv "$csv" -n "$NAMESPACE" --ignore-not-found
+done
+
+# Cluster-scoped and with no owner reference, so nothing removes it when the
+# CSV goes. Left behind it names a plugin that no longer exists, and the console
+# logs a failed load on every page view.
+oc delete consoleplugin "$PLUGIN_NAME" --ignore-not-found
+
+if [ "$KEEP_CATALOG" = false ]; then
+  oc delete catalogsource "$CATALOG_SOURCE" -n "$MARKETPLACE_NS" --ignore-not-found
+fi
+
+idx=$(plugin_index || true)
+if [ -n "$idx" ]; then
+  oc patch console.operator.openshift.io cluster --type=json \
+    -p "[{\"op\": \"remove\", \"path\": \"/spec/plugins/$((idx - 1))\"}]"
+  info "removed $PLUGIN_NAME from console.operator"
+fi
+
+if [ "$CLEAN_ONLY" = true ]; then
+  log "Clean only — stopping here"
+  info "The File Integrity Operator's own Subscription, CSV and OperatorGroup"
+  info "were not touched. Worth confirming that by hand at least once:"
+  info "  oc get csv,subscription,operatorgroup -n $NAMESPACE"
+  exit 0
+fi
+
+# --------------------------------------------------------------------------
+
+log "Generating the bundle"
+need_tools helm operator-sdk
+
+# No BUNDLE_IMAGE: the generator then names the release image and, because that
+# reference cannot move, chooses IfNotPresent. That is the branch every earlier
+# round trip skipped by pointing at :test.
+(cd "$REPO_ROOT" && HELM="$HELM" node hack/bundle/build-bundle.mjs)
+
+BUNDLE_DIR="$REPO_ROOT/dist/bundle"
+"$SDK" bundle validate "$BUNDLE_DIR" \
+  --select-optional suite=operatorframework \
+  --select-optional name=community
+
+CSV_FILE=$(echo "$BUNDLE_DIR"/manifests/*.clusterserviceversion.yaml)
+CSV_NAME=$(basename "$CSV_FILE" .clusterserviceversion.yaml)
+CHANNEL=$(sed -n 's/.*bundle\.channels\.v1: *//p' \
+  "$BUNDLE_DIR/metadata/annotations.yaml" | tr -d "\"' " | head -1)
+[ -n "$CHANNEL" ] || die "could not read the channel from the bundle metadata"
+info "csv      $CSV_NAME"
+info "channel  $CHANNEL"
+
+# --------------------------------------------------------------------------
+
+log "Building and pushing the bundle and catalogue images"
+require_podman
+require_registry_auth
+need_tools opm
+
+podman build -f "$BUNDLE_DIR/bundle.Dockerfile" -t "$BUNDLE_IMAGE" "$BUNDLE_DIR"
+podman push "$BUNDLE_IMAGE"
+
+CATALOG_DIR="$REPO_ROOT/dist/catalog"
+rm -rf "$CATALOG_DIR" "$REPO_ROOT/dist/catalog.Dockerfile"
+mkdir -p "$CATALOG_DIR/$PLUGIN_NAME"
+
+{
+  "$OPM" init "$PLUGIN_NAME" --default-channel="$CHANNEL" --output=yaml
+  "$OPM" render "$BUNDLE_IMAGE" --output=yaml
+  # `opm init` writes the package and `opm render` the bundle; the channel that
+  # joins them is ours to state. One entry and no `replaces` — this catalogue
+  # exists to install one version once, not to describe an upgrade path.
+  printf -- '---\nschema: olm.channel\npackage: %s\nname: %s\nentries:\n  - name: %s\n' \
+    "$PLUGIN_NAME" "$CHANNEL" "$CSV_NAME"
+} >"$CATALOG_DIR/$PLUGIN_NAME/index.yaml"
+
+"$OPM" validate "$CATALOG_DIR"
+(cd "$REPO_ROOT/dist" && "$OPM" generate dockerfile catalog)
+podman build -f "$REPO_ROOT/dist/catalog.Dockerfile" \
+  -t "$CATALOG_IMAGE" "$REPO_ROOT/dist"
+podman push "$CATALOG_IMAGE"
+
+# --------------------------------------------------------------------------
+
+log "Installing"
+
+oc apply -f - <<EOF
+apiVersion: operators.coreos.com/v1alpha1
+kind: CatalogSource
+metadata:
+  name: $CATALOG_SOURCE
+  namespace: $MARKETPLACE_NS
+spec:
+  sourceType: grpc
+  image: $CATALOG_IMAGE
+  displayName: File Integrity console plugin (test)
+  publisher: local
+  updateStrategy:
+    registryPoll:
+      interval: 10m
+EOF
+
+wait_for "catalogue READY" 180 catalog_ready
+
+# Two OperatorGroups in one namespace make both invalid, and one of them would
+# be the File Integrity Operator's. Creating one blindly is how an install
+# breaks the operator it was meant to sit beside.
+og_count=$(oc get operatorgroup -n "$NAMESPACE" -o name 2>/dev/null | wc -l)
+case $og_count in
+0)
+  info "no OperatorGroup in $NAMESPACE — creating one"
+  oc apply -f - <<EOF
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: $NAMESPACE
+  namespace: $NAMESPACE
+spec:
+  targetNamespaces:
+    - $NAMESPACE
+EOF
+  ;;
+1) info "using the existing OperatorGroup" ;;
+*) die "$og_count OperatorGroups in $NAMESPACE — both are invalid while that is true" ;;
+esac
+
+oc apply -f - <<EOF
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: $PLUGIN_NAME
+  namespace: $NAMESPACE
+spec:
+  channel: $CHANNEL
+  name: $PLUGIN_NAME
+  source: $CATALOG_SOURCE
+  sourceNamespace: $MARKETPLACE_NS
+  installPlanApproval: Automatic
+  startingCSV: $CSV_NAME
+EOF
+
+wait_for "CSV $CSV_NAME Succeeded" 300 csv_succeeded
+
+if [ -z "$(oc get console.operator.openshift.io cluster \
+  -o jsonpath='{.spec.plugins}' 2>/dev/null)" ]; then
+  oc patch console.operator.openshift.io cluster --type=json \
+    -p "[{\"op\": \"add\", \"path\": \"/spec/plugins\", \"value\": [\"$PLUGIN_NAME\"]}]"
+elif [ -z "$(plugin_index || true)" ]; then
+  oc patch console.operator.openshift.io cluster --type=json \
+    -p "[{\"op\": \"add\", \"path\": \"/spec/plugins/-\", \"value\": \"$PLUGIN_NAME\"}]"
+fi
+info "plugin enabled on console.operator"
+
+wait_for "deployment available" 180 deployment_ready
+
+# --------------------------------------------------------------------------
+
+log "Checking what was installed"
+
+check "CSV phase" Succeeded \
+  "$(oc get csv "$CSV_NAME" -n "$NAMESPACE" -o jsonpath='{.status.phase}')"
+
+check "deployment ready replicas" \
+  "$(oc get deployment "$PLUGIN_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.replicas}')" \
+  "$(oc get deployment "$PLUGIN_NAME" -n "$NAMESPACE" -o jsonpath='{.status.readyReplicas}')"
+
+check "container image" "$PLUGIN_IMAGE" \
+  "$(oc get deployment "$PLUGIN_NAME" -n "$NAMESPACE" \
+    -o jsonpath='{.spec.template.spec.containers[0].image}')"
+
+# The generator derives this from the reference rather than being told it, and
+# a release tag is the only case that yields IfNotPresent. Every round trip
+# before this one pointed at :test and so never executed that branch.
+check "imagePullPolicy" IfNotPresent \
+  "$(oc get deployment "$PLUGIN_NAME" -n "$NAMESPACE" \
+    -o jsonpath='{.spec.template.spec.containers[0].imagePullPolicy}')"
+
+# With IfNotPresent a node that already holds a layer for this tag reuses it,
+# and the rollout reports success while running the previous binary. The only
+# way to tell is to compare what is running against what the registry says the
+# tag is now.
+POD_DIGEST=$(oc get pod -n "$NAMESPACE" \
+  -l "app.kubernetes.io/name=$PLUGIN_NAME" \
+  -o jsonpath='{.items[0].status.containerStatuses[0].imageID}' 2>/dev/null |
+  grep -oE 'sha256:[0-9a-f]+' || true)
+QUAY_DIGEST=$(curl -fsS \
+  "https://quay.io/api/v1/repository/asalvati/$PLUGIN_NAME/tag/?specificTag=$VERSION&onlyActiveTags=true" \
+  2>/dev/null | grep -oE '"manifest_digest": *"sha256:[0-9a-f]+"' |
+  grep -oE 'sha256:[0-9a-f]+' | head -1 || true)
+if [ -z "$QUAY_DIGEST" ]; then
+  skip "running image is the tag's current digest" "quay.io unreachable"
+else
+  # A mismatch is usually a stale layer. It can also mean the tag is a manifest
+  # list, whose digest is not the per-architecture one the kubelet records — if
+  # that turns out to be so here, this check needs the index resolving first
+  # rather than removing.
+  check "running image is the tag's current digest" "$QUAY_DIGEST" "$POD_DIGEST"
+fi
+
+# --------------------------------------------------------------------------
+# The invariant this repository is built around: the backend has no authority
+# of its own, and everything it does against the API server runs as the calling
+# user. OLM creates a Role and a RoleBinding from the CSV's `permissions` entry
+# whether or not anything is granted, so the question is not whether RBAC
+# objects exist — they do — but whether any of them grants a rule.
+
+SA=$(oc get deployment "$PLUGIN_NAME" -n "$NAMESPACE" \
+  -o jsonpath='{.spec.template.spec.serviceAccountName}')
+check "ServiceAccount exists" "$SA" \
+  "$(oc get serviceaccount "$SA" -n "$NAMESPACE" \
+    -o jsonpath='{.metadata.name}' 2>/dev/null)"
+
+# Which roles are bound to it, read from the bindings rather than guessed from
+# names — OLM generates the names and they are not the account's.
+# The ${...} inside the node program below belong to the JavaScript, not to
+# the shell, so the single quotes are the point.
+# shellcheck disable=SC2016
+bound_roles() {
+  oc get rolebinding,clusterrolebinding -A -o json |
+    node -e '
+      const [ns, sa] = process.argv.slice(1);
+      let raw = "";
+      process.stdin.on("data", (d) => (raw += d));
+      process.stdin.on("end", () => {
+        for (const b of JSON.parse(raw).items) {
+          const hit = (b.subjects || []).some(
+            (s) =>
+              s.kind === "ServiceAccount" &&
+              s.name === sa &&
+              (s.namespace || b.metadata.namespace) === ns,
+          );
+          if (!hit) continue;
+          const scope = b.roleRef.kind === "ClusterRole" ? "cluster" : b.metadata.namespace;
+          console.log(`${b.roleRef.kind} ${scope} ${b.roleRef.name}`);
+        }
+      });
+    ' "$NAMESPACE" "$SA"
+}
+
+GRANTED=""
+CLUSTER_ROLES=0
+while read -r kind scope name; do
+  [ -z "$kind" ] && continue
+  if [ "$kind" = ClusterRole ]; then
+    CLUSTER_ROLES=$((CLUSTER_ROLES + 1))
+    rules=$(oc get clusterrole "$name" -o jsonpath='{.rules}' 2>/dev/null)
+  else
+    rules=$(oc get role "$name" -n "$scope" -o jsonpath='{.rules}' 2>/dev/null)
+  fi
+  case $rules in
+  '' | '[]') ;;
+  *) GRANTED="$GRANTED $kind/$name" ;;
+  esac
+done < <(bound_roles)
+
+check "no ClusterRole is bound to the ServiceAccount" 0 "$CLUSTER_ROLES"
+check "every Role bound to it grants nothing" "" "${GRANTED# }"
+
+# And the same question asked of the API server rather than of the manifests,
+# because that is what actually decides. A ServiceAccount always retains the
+# self-review verbs every authenticated identity has; none of these is among
+# them.
+for verb_res in "get:secrets" "create:pods/exec" "list:pods"; do
+  verb=${verb_res%%:*}
+  res=${verb_res##*:}
+  check "SA cannot $verb $res" no \
+    "$(oc auth can-i "$verb" "$res" \
+      --as="system:serviceaccount:$NAMESPACE:$SA" -n "$NAMESPACE" 2>/dev/null || true)"
+done
+
+# --------------------------------------------------------------------------
+
+check "ConsolePlugin backend namespace" "$NAMESPACE" \
+  "$(oc get consoleplugin "$PLUGIN_NAME" \
+    -o jsonpath='{.spec.backend.service.namespace}' 2>/dev/null)"
+
+check "console.operator lists the plugin" "$PLUGIN_NAME" \
+  "$(oc get console.operator.openshift.io cluster \
+    -o jsonpath='{range .spec.plugins[*]}{@}{"\n"}{end}' 2>/dev/null |
+    grep "^${PLUGIN_NAME}$" || true)"
+
+# Through the API server's service proxy rather than `oc exec … curl`: the
+# plugin image carries no shell tools, and this asks the same question without
+# depending on what is inside the container.
+HEALTH=$(oc get --raw \
+  "/api/v1/namespaces/$NAMESPACE/services/https:$PLUGIN_NAME:$PLUGIN_PORT/proxy/healthz" \
+  2>/dev/null || true)
+check "/healthz answers" ok "${HEALTH:-unreachable}"
+
+log "Done"
+info "console: $(oc whoami --show-console 2>/dev/null || echo '<unknown>')"
+info "Compute -> File Integrity, once the console has reloaded."
+checks_report
