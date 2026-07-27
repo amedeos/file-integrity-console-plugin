@@ -92,6 +92,29 @@ spec:
     builds no Kubernetes client at all. Set `PLUGIN_ENABLE_FILE_RETRIEVE` to
     `false` through the Subscription to do that.
 
+    ## Before you install
+
+    * **Install the [File Integrity Operator][fio] first.** This plugin displays
+      what that operator produces and scans nothing itself. On a cluster with no
+      `FileIntegrity` CRD the navigation entry stays hidden.
+    * **Install into `openshift-file-integrity`.** The `ConsolePlugin` names that
+      namespace literally, so the console cannot reach the plugin's backend from
+      anywhere else. The install form suggests it by default; overriding it
+      produces a plugin that fails to load rather than an error at install time.
+    * **Enable the plugin when the form asks.** OperatorHub defaults the *Console
+      plugin* choice to **Disabled** for any catalogue it does not trust, which
+      includes the community one. Left that way, the operator runs and no menu
+      entry appears. To enable it after the fact:
+
+      ```
+      oc patch console.operator.openshift.io cluster --type=json \
+        -p '[{"op":"add","path":"/spec/plugins/-","value":"file-integrity-console-plugin"}]'
+      ```
+
+    Uninstalling leaves the cluster-scoped `ConsolePlugin` behind, because a
+    bundle cannot ship the Job that would remove it. Delete it by hand:
+    `oc delete consoleplugin file-integrity-console-plugin`.
+
     [fio]: https://github.com/openshift/file-integrity-operator
 
   keywords:
@@ -119,6 +142,8 @@ spec:
   links:
     - name: Source
       url: https://github.com/amedeos/file-integrity-console-plugin
+    - name: Documentation
+      url: https://github.com/amedeos/file-integrity-console-plugin#readme
     - name: File Integrity Operator
       url: https://github.com/openshift/file-integrity-operator
 
