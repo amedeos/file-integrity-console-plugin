@@ -396,9 +396,11 @@ yarn start-console  # console on :9000, pointed at the logged-in cluster
 ### Trying a release the way a user gets it
 
 Two scripts under `hack/lab/`, for the two questions a release has to answer.
-Both need `oc` logged in and `podman`; the tools they use beyond that — `helm`,
-`opm`, `operator-sdk` — are downloaded, checksum-verified and cached rather
-than assumed to be installed.
+Both need `oc` logged in and `podman`. Beyond that, `helm` and `opm` are
+downloaded, checksum-verified and cached rather than assumed to be installed —
+`helm` because the bundle is rendered from the chart and `opm` because it
+builds the catalogue. `operator-sdk` is fetched only under `--validate`, since
+its one use here is the check CI already runs on every pull request.
 
 ```sh
 hack/lab/bundle.sh 0.1.0              # install from OLM, then check the result

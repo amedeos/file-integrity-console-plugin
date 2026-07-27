@@ -33,6 +33,11 @@ OCP_ZSTREAM_422=4.22.5
 # Pinned tools. Every checksum here was read from the publisher, not computed
 # locally: a checksum generated from whatever happened to download is a record
 # of the download, not a check on it.
+#
+# Only two of the three are always needed. helm is structural — the bundle is
+# rendered from the chart, so there is no bundle without it — and opm builds
+# the catalogue. operator-sdk is fetched only under bundle.sh --validate,
+# because its one use here is the check CI already runs.
 HELM_VERSION=3.16.3
 HELM_SHA256=f5355c79190951eed23c5432a3b920e071f4c00a64f75e077de0dd4cb7b294ea
 OPM_VERSION=4.22.5

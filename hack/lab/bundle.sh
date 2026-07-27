@@ -11,8 +11,11 @@
 #   hack/lab/bundle.sh 0.1.0                 tear down, install, check
 #   hack/lab/bundle.sh 0.1.0 --clean-only    remove an installation and stop
 #   hack/lab/bundle.sh 0.1.0 --keep-catalog  leave the CatalogSource in place
+#   hack/lab/bundle.sh 0.1.0 --validate      also run operator-sdk on the bundle
 #
-# Requires: oc logged in, podman, and a quay.io credential.
+# Requires: oc logged in, podman, and a quay.io credential. helm and opm are
+# downloaded and cached; operator-sdk only with --validate, because the check
+# it performs is the one CI already runs on every pull request.
 
 set -euo pipefail
 
@@ -23,16 +26,18 @@ VERSION=${1:-}
 [ $# -gt 0 ] && shift
 CLEAN_ONLY=false
 KEEP_CATALOG=false
+VALIDATE=false
 
 for arg in "$@"; do
   case $arg in
   --clean-only) CLEAN_ONLY=true ;;
   --keep-catalog) KEEP_CATALOG=true ;;
+  --validate) VALIDATE=true ;;
   *) die "unknown option '$arg'" ;;
   esac
 done
 
-[ -n "$VERSION" ] || die "usage: $0 <version> [--clean-only] [--keep-catalog]
+[ -n "$VERSION" ] || die "usage: $0 <version> [--clean-only] [--keep-catalog] [--validate]
   <version> is the release version, which is also the git tag and the image
   tag — 0.1.0 on main, 0.1.0-ocp4.19 on release-4.19."
 
@@ -163,7 +168,7 @@ fi
 # --------------------------------------------------------------------------
 
 log "Generating the bundle"
-need_tools helm operator-sdk
+need_tools helm
 
 # No BUNDLE_IMAGE: the generator then names the release image and, because that
 # reference cannot move, chooses IfNotPresent. That is the branch every earlier
@@ -171,9 +176,21 @@ need_tools helm operator-sdk
 (cd "$REPO_ROOT" && HELM="$HELM" node hack/bundle/build-bundle.mjs)
 
 BUNDLE_DIR="$REPO_ROOT/dist/bundle"
-"$SDK" bundle validate "$BUNDLE_DIR" \
-  --select-optional suite=operatorframework \
-  --select-optional name=community
+
+# operator-sdk is off by default, and said out loud rather than passed over in
+# silence. The check is the one the `bundle` job in CI runs on every pull
+# request, so on a tag that CI has already passed it re-answers a settled
+# question — at the cost of a download this script would otherwise not need.
+# It earns its place while the chart or the generator is being changed, where
+# failing in two seconds beats failing after two image builds.
+if [ "$VALIDATE" = true ]; then
+  need_tools operator-sdk
+  "$SDK" bundle validate "$BUNDLE_DIR" \
+    --select-optional suite=operatorframework \
+    --select-optional name=community
+else
+  info "operator-sdk validation skipped (--validate to run it; CI runs it on every PR)"
+fi
 
 CSV_FILE=$(echo "$BUNDLE_DIR"/manifests/*.clusterserviceversion.yaml)
 CSV_NAME=$(basename "$CSV_FILE" .clusterserviceversion.yaml)
