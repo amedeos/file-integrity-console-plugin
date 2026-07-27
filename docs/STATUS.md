@@ -562,12 +562,102 @@ not failed, absent — because Quay builds one image at a time here and drops wh
 Re-pushing that tag alone against an empty queue built it immediately. Push one tag at a time, and
 read the build API rather than believing the push.
 
+## The lab round trip is a script now — 27 July 2026
+
+`hack/lab/` holds what had been a page of `oc` commands run by hand. Two scripts, because there
+are two questions and they are not the same one:
+
+- **`bundle.sh <version>`** — tear down, generate from the chart, build a one-bundle catalogue,
+  install, and then *check*. The install half is the boring half. The checks are the point: the
+  CSV phase, the image and its pull policy, the running image's digest against what Quay says the
+  tag is, that nothing bound to the plugin's ServiceAccount grants a rule, that `console.operator`
+  lists the plugin, that `/healthz` answers. A failed check fails the run.
+- **`console.sh <version> [4.16 4.19]`** — a real console of each generation against that
+  generation's published image, one podman network and one host port each.
+
+`console.sh` cannot answer `bundle.sh`'s question: `BRIDGE_PLUGINS` bypasses the ConsolePlugin
+resource, the CSV, the Subscription and the catalogue. Nor can it exercise file retrieve — the
+proxy alias lives in the ConsolePlugin resource and the backend builds its client from
+`rest.InClusterConfig()`. And `bundle.sh` refuses to install a generation the cluster is not,
+because crossing the `@console/pluginAPI` bound produces a plugin that never executes rather than
+an error anyone would recognise.
+
+Three things the teardown deliberately does not do, all for one reason: the namespace
+`openshift-file-integrity` belongs to the File Integrity Operator as much as to the plugin.
+
+- no `oc delete all`, no label selector, no deleting the namespace;
+- the OperatorGroup is never created blindly. Two in one namespace make both invalid, and one of
+  them would be FIO's;
+- a Helm release of the plugin stops the run rather than being removed, because which installation
+  is wanted is a decision.
+
+The RBAC check is asked twice on purpose: once of the manifests, by following every RoleBinding and
+ClusterRoleBinding that names the ServiceAccount and requiring the roles behind them to be empty,
+and once of the API server, with `oc auth can-i` as that account. The manifests are what we
+control; the API server is what actually decides.
+
+### What the first scripted install found — 27 July 2026
+
+`hack/lab/bundle.sh 0.1.0` ran end to end on the lab cluster: catalogue READY in 50s, CSV
+`Succeeded` in 35s, 13 of 14 checks green on the first attempt. Two of those greens are new
+information rather than confirmation:
+
+- **`imagePullPolicy: IfNotPresent`.** Every previous install pointed at `:test`, so the branch the
+  generator takes for an immutable reference had never executed on a cluster.
+- **The running image's digest equals the tag's.** The check was left strict knowing a manifest
+  list would have made it fail wrongly; it does not, so the tag is a single-architecture image and
+  the check means what it says.
+
+Getting there cost three defects in the script itself, none of them in the bundle, and each found
+only by running it:
+
+1. **`opm` from the OpenShift mirror unpacks as `opm-rhel8`.** The script looked for `opm`.
+2. **Pulling an image needs a containers signature policy**, which the build host did not have.
+   Everything up to `podman push` worked and everything after it was unreachable. The script now
+   carries a throwaway policy of its own — `HOME` redirected for `opm`, which has no flag for it,
+   and `--signature-policy` for podman, which cannot be given a different `HOME` without losing
+   sight of its own image storage. Prerequisites are all checked in the preflight now.
+3. **podman hides `--signature-policy` from `--help`**, so asking the help text whether it is
+   supported answered no on a podman that accepts it. The probe invokes podman with the flag and a
+   context that does not exist: only an absent flag says `unknown flag`.
+
+Verified from outside the script afterwards, because a script is a poor witness to itself: both
+CSVs `Succeeded` — ours and `file-integrity-operator.v1.4.0`, untouched — one OperatorGroup, FIO's
+deployment still 1/1.
+
+And `console.operator` read back as
+`["monitoring-plugin","networking-console-plugin","odf-console","file-integrity-console-plugin"]`.
+That cluster had **three other plugins already enabled**. Both halves of the script handle the list
+element-wise — the install appends, the teardown removes its own index — so those three survived
+untouched. A merge patch on the whole field would have been shorter to write and would have
+switched off monitoring, networking and ODF on somebody else's cluster. Now observed rather than
+argued.
+
+And one finding that was not about the script at all — see the RBAC invariant in `AGENTS.md`.
+**OLM grants the ServiceAccount one rule regardless of what the bundle declares**: `get`, `update`
+and `patch` on its own `OperatorCondition`, restricted by `resourceNames` to that single object.
+Our own Role is genuinely empty. The check reported both, because a Role with no rules reads back
+through jsonpath as the string `null` — neither empty nor `[]` — so it called our empty Role a
+grant too. Both halves are fixed: `null` counts as empty, and OLM's rule is tolerated by shape,
+not by its `olm.managed` label, which the Role holding the CSV's own permissions also carries.
+
+The teardown is checked too, and that took a second pass. `--clean-only` originally deleted and
+printed "worth confirming by hand" — but the check that matters cannot be done by hand afterwards:
+whether the other operators' plugins are *the ones that were there before* needs the list read
+**before** the deletion. Confirming it from memory of an earlier run is not verification. The
+script now snapshots it, and asserts after the teardown that nothing of the plugin survives, that
+the list is unchanged, that FIO's CSV and deployment are untouched and that there is still exactly
+one OperatorGroup. Five checks, run in both modes, so the full round trip is nineteen.
+
+**Nineteen of nineteen on the lab cluster, and the plugin visible and working in the console.**
+Install, teardown and re-install were each run, in that order, so the round trip is idempotent as
+well as correct. This is the first installation of this operator from a release tag rather than a
+hand-pushed `:test` image.
+
 **Next, in order:**
 
-1. **Install the real 4.22 bundle on the lab cluster**, generated with no `BUNDLE_IMAGE` so it
-   names `0.1.0`. Every install so far pointed at `:test`, which means `imagePullPolicy: Always`;
-   with a release tag the generator chooses `IfNotPresent`, and that branch has never run on a
-   cluster. It is also the first time the bundle would pull an image nobody pushed by hand.
+1. **`hack/lab/console.sh 0.1.0 4.16 4.19`** — the two release builds have not been loaded by a
+   console since they were published.
 2. **Submit**, one pull request per bundle to `community-operators-prod`, starting with 4.22 alone:
    it is the generation that has been installed end to end, and the community CI is better learned
    on one bundle than on three.
@@ -578,6 +668,64 @@ read the build API rather than believing the push.
 `oc delete csv`, `oc delete consoleplugin file-integrity-console-plugin` — the last one is
 cluster-scoped and has no owner reference, so nothing else removes it — and `oc delete
 catalogsource fio-plugin-test -n openshift-marketplace`.
+
+### Open defect: the re-initialise confirmation on 4.16 — 27 July 2026
+
+Reported from `hack/lab/console.sh 0.1.0 4.16`, the first time that build had been loaded by a
+console since it was published. Clicking **Re-initialize baseline** on a node opens the
+confirmation, but its buttons are not usable. Everything else on that console worked.
+
+Deferred deliberately, not forgotten.
+
+**The buttons are absent, not disabled** — the dialog shows its warning and body text and then
+nothing below. So this is not `isDisabled={submitting}` stuck true; the footer is not being
+rendered at all, and `ReinitActions.tsx` on this branch supplies it through PatternFly 5's
+`actions={[...]}` prop rather than a `ModalFooter` child.
+
+**"It works on 4.19 and 4.22" is not evidence about this.** Those branches carry `main`'s markup —
+PatternFly 6, with `ModalFooter` — because no component is in `release-4.19`'s declared delta. The
+`actions` spelling exists only on `release-4.16`, so the working consoles are running different
+code, not the same code somewhere else. Stating it as a control was wrong.
+
+The one comparison that does discriminate is on the 4.16 console itself: `FileContentModal.tsx` is
+the only other component using `actions={[...]}` there. If *View file* shows its Download and
+Close buttons, the fault is local to `ReinitActions`. If it does not, the `Modal` is ignoring
+`actions` and every dialog on the 4.16–4.18 branch is affected.
+
+**And the console shares PatternFly 4 with plugins, not 5.** Read off the running 4.16 console
+rather than inferred. Its `index.html` loads two PatternFly bundles:
+
+```
+vendor-patternfly-4-shared~main-chunk-…js
+vendor-patternfly-5~main-chunk-…js
+```
+
+The shared scope registers `@patternfly/react-core` from a module that lives in the **4-shared**
+chunk, whose bundled `package.json` reads `"version":"4.278.0"`; `@patternfly/react-table` is
+there too, at 4.113.6. The PatternFly 5 bundle is the console's own. So a plugin importing
+`@patternfly/react-core` is offered **4.278.0**, while `release-4.16` compiles against `~5.2.2`.
+
+That makes the branch's whole PatternFly story need re-checking, and it is a correction to the
+table in `AGENTS.md`, which records 4.16–4.18 as PatternFly 5.2 — true of the stylesheet the
+console loads, not of the React components it shares. What has *not* been established is the
+mechanism between that and the missing footer. Both these are still open:
+
+- ~~whether webpack imposes the console's 4.278.0~~ **Asked and answered: it does not.** The
+  plugin *provides* `@patternfly/react-core` 5.2.3 and *consumes* it at `^5.2.3`, against the
+  console's 4.278.0, so a singleton share would have logged `Unsatisfied version … of shared
+  singleton module` in the browser. Reloading the 4.16 console with devtools open and filtering on
+  `patternfly` produced **nothing at all**. The plugin is therefore rendering with its own 5.2.3,
+  and the shared PatternFly 4 is context rather than cause. The leading hypothesis is dead;
+- what does render the dialog, then. The remaining discriminator is `FileContentModal` on the same
+  console — the only other component on the branch using `actions={[...]}` — and it has not been
+  looked at yet.
+
+Answer those before choosing a fix, because they point at different ones: build the branch against
+PatternFly 4, or write a footer that both majors render.
+
+This is also why the defect belongs in the notes and not only in an issue. CI cannot see any of
+it — the component that renders comes from the console at runtime — and neither can jsdom, which
+measures every element as zero-sized, so no unit test can assert that a button is there to click.
 
 **Left over:** on a real 4.16 cluster, the SPDY exec fallback — read a file through the plugin, read
 it on the node, compare byte count and `sha256` before looking at the interface. The lab leftovers
@@ -597,7 +745,8 @@ depend on it, so turning it off is no longer a cleanup.
   `/var/tmp` is a tmpfs: it empties when the container restarts, so this has to be redone every
   time. The same goes for `helm`, also absent (`oc` and `kubectl` are present).
 - Building the OLM bundle needs `helm` and, to check it, `operator-sdk`; neither is preinstalled
-  and both are single binaries:
+  and both are single binaries. `hack/lab/tools.sh` now fetches and checksums them — set
+  `FIO_TOOLS_DIR=/var/tmp/fio-tools` so they survive somewhere with room. By hand:
   ```sh
   curl -sfL https://get.helm.sh/helm-v3.16.4-linux-amd64.tar.gz | tar xz -C /var/tmp \
     --strip-components=1 linux-amd64/helm
@@ -607,6 +756,12 @@ depend on it, so turning it off is no longer a cleanup.
   ```
   The `multiarch` validator additionally wants to pull the image and will warn that it cannot;
   there is no container runtime here.
+- **`opm` from `mirror.openshift.com` unpacks as `opm-rhel8`, not `opm`.** The OpenShift build
+  names the binary after the base it was built on. `hack/lab/tools.sh` finds it rather than
+  assuming the name; a script that assumed it looked for a file that was never there.
+  Its version need not match the cluster's — the binary writes the catalogue and never reaches
+  the cluster, which talks gRPC to the catalogue image, whose server comes from
+  `quay.io/operator-framework/opm:latest`. Point `OPM` at another binary if a lab ever needs one.
 - `yarn` is not on the PATH: use the committed binary,
   `node .yarn/releases/yarn-4.14.1.cjs <cmd>`.
 - `/home/agent` is a 1 GB tmpfs and the yarn cache lives under it, so an install eventually fails
