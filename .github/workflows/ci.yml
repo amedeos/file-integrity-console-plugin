@@ -378,26 +378,76 @@ jobs:
       # Rendering with --set only ever produced strings, which is how a default
       # of 1048576 reached a cluster as "1.048576e+06" and crash-looped the pod:
       # Helm parses YAML numbers as float64. These render the *defaults*.
+      #
+      # The tunable settings are environment variables rather than flags — a
+      # Subscription can override a container's env but not its args, so as
+      # flags they were unreachable from an OperatorHub install. The float64
+      # trap is unchanged by that: a value is a value wherever it is written.
       - name: Render with defaults
         run: |
           helm template ci charts/file-integrity-console-plugin \
             --namespace openshift-file-integrity \
             --set plugin.image=example.io/plugin:ci > /tmp/defaults.yaml
-          grep -q -- '--max-file-bytes=1048576' /tmp/defaults.yaml
-          ! grep -qE -- '--[a-z-]+=[0-9]+\.[0-9]+e\+[0-9]+' /tmp/defaults.yaml
+          grep -q -- 'value: "1048576"' /tmp/defaults.yaml
+          # Comments are stripped first. The template carries a comment naming
+          # 1.048576e+06 as the thing to avoid, and scanning the whole render
+          # fails the build over its own warning — the same way the PatternFly
+          # style check once failed over the prose beside the dead class.
+          ! grep -vE '^\s*#' /tmp/defaults.yaml | grep -qE '[0-9]+\.[0-9]+e\+[0-9]+'
 
-      - name: Render with file retrieve enabled
+      # File retrieve is on by default — it grants nobody anything, since every
+      # read runs as the calling user and is refused without their own
+      # `pods/exec`. Both positions are asserted, because the switch that has
+      # never been rendered in one of its states is the one that turns out not
+      # to work.
+      - name: The file-retrieve switch renders both ways
+        run: |
+          grep -A 1 PLUGIN_ENABLE_FILE_RETRIEVE /tmp/defaults.yaml | grep -q 'value: "true"'
+          helm template ci charts/file-integrity-console-plugin \
+            --namespace openshift-file-integrity \
+            --set plugin.image=example.io/plugin:ci \
+            --set backend.features.fileRetrieve=false > /tmp/off.yaml
+          grep -A 1 PLUGIN_ENABLE_FILE_RETRIEVE /tmp/off.yaml | grep -q 'value: "false"'
+          # The proxy is declared either way. Dropping it when the feature is
+          # off would make the console answer 404, which the UI can only report
+          # as "no scan pod on this node" — the wrong reason entirely.
+          grep -q 'authorization: UserToken' /tmp/off.yaml
+
+      - name: Render with the deny list and a raised limit
         run: |
           helm template ci charts/file-integrity-console-plugin \
             --namespace openshift-file-integrity \
             --set plugin.image=example.io/plugin:ci \
-            --set backend.features.fileRetrieve=true \
             --set 'backend.extraDenyList={/etc/example/**}' \
             --set backend.maxFileBytes=2097152 > /tmp/retrieve.yaml
-          grep -q -- '--max-file-bytes=2097152' /tmp/retrieve.yaml
-          grep -q -- '--enable-file-retrieve=true' /tmp/retrieve.yaml
+          grep -q -- 'value: "2097152"' /tmp/retrieve.yaml
           grep -q 'authorization: UserToken' /tmp/retrieve.yaml
           grep -q 'extra-deny-list.txt' /tmp/retrieve.yaml
+
+      # Every setting the values file exposes has to actually reach the
+      # container, and the environment is now the only route for most of them.
+      # A value renamed in the template and not in the binary — or the other way
+      # round — leaves an installation silently running the default.
+      - name: Tunable settings reach the container as environment
+        run: |
+          helm template ci charts/file-integrity-console-plugin \
+            --namespace openshift-file-integrity \
+            --set plugin.image=example.io/plugin:ci > /tmp/env.yaml
+          for name in PLUGIN_FIO_NAMESPACE PLUGIN_MAX_FILE_BYTES PLUGIN_ENABLE_FILE_RETRIEVE; do
+            grep -q "name: $name" /tmp/env.yaml || {
+              echo "$name is not rendered; an OLM install cannot reach that setting"
+              exit 1
+            }
+            # The env name is the flag name mechanically transformed, so the
+            # flag it claims to configure has to exist. Otherwise the chart
+            # renders a variable the binary reads nothing from, and the
+            # installation runs the default while appearing configured.
+            flag=$(echo "${name#PLUGIN_}" | tr 'A-Z_' 'a-z-')
+            grep -q "\"$flag\"" backend/cmd/server/main.go || {
+              echo "$name maps to --$flag, which the binary does not define"
+              exit 1
+            }
+          done
 
       # The backend's ServiceAccount is deliberately bound to no role at all;
       # everything it does runs as the calling user. A rule appearing here is a
@@ -409,6 +459,184 @@ jobs:
             --set plugin.image=example.io/plugin:ci \
             --set plugin.jobs.patchConsoles.enabled=false > /tmp/norbac.yaml
           ! grep -qE '^kind: (Cluster)?Role(Binding)?$' /tmp/norbac.yaml
+
+  # The OLM bundle is generated from the chart rather than written beside it,
+  # so there is only one description of what an installation creates. This job
+  # is what keeps that true: it builds the bundle the way a release would and
+  # then asks the same questions of it that the chart job asks of the chart.
+  #
+  # It is one job checking three different expected answers, because everything
+  # it asserts is derived from the branch's own package.json — the version, the
+  # OpenShift range, the channel. Nothing here is per-branch, which is why
+  # ci.yml can stay a path that must never diverge.
+  bundle:
+    name: OLM bundle
+    runs-on: ubuntu-latest
+    # The nightly run exists only for the branch-delta drift check.
+    if: github.event_name != 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install
+        run: yarn install --immutable
+
+      - name: Install operator-sdk
+        run: |
+          curl -sfL -o /usr/local/bin/operator-sdk \
+            https://github.com/operator-framework/operator-sdk/releases/download/v1.42.3/operator-sdk_linux_amd64
+          chmod +x /usr/local/bin/operator-sdk
+
+      - name: Generate
+        # A fixed timestamp so two runs of the same commit produce the same
+        # bundle; a release sets its own.
+        run: BUNDLE_CREATED_AT=2000-01-01T00:00:00Z node hack/bundle/build-bundle.mjs
+
+      - name: Validate
+        run: |
+          operator-sdk bundle validate ./dist/bundle \
+            --select-optional suite=operatorframework
+          operator-sdk bundle validate ./dist/bundle --select-optional name=community
+
+      # Everything below reads the generated bundle rather than trusting the
+      # generator. Each assertion is one that has already been got wrong once,
+      # here or in the chart.
+      - name: The bundle says what this branch is
+        run: |
+          node - <<'EOF'
+          const fs = require('fs');
+          const yaml = require('js-yaml');
+
+          const version = JSON.parse(fs.readFileSync('package.json', 'utf8')).version;
+          const dir = 'dist/bundle/manifests';
+          const read = (f) => yaml.load(fs.readFileSync(f, 'utf8'));
+
+          const csv = read(`${dir}/file-integrity-console-plugin.v${version}.clusterserviceversion.yaml`);
+          const meta = read('dist/bundle/metadata/annotations.yaml').annotations;
+
+          // The generation table lives in the generator, on `main`. This is the
+          // independent statement of the same thing: a branch whose version says
+          // 4.16 must not publish a bundle offered to a 4.22 catalogue.
+          const expected = {
+            '-ocp4.16': { range: 'v4.16-v4.18', channel: 'stable-4.16' },
+            '-ocp4.19': { range: 'v4.19-v4.21', channel: 'stable-4.19' },
+            '': { range: 'v4.22', channel: 'stable-4.22' },
+          };
+          const suffix = Object.keys(expected).find((s) => s !== '' && version.endsWith(s)) ?? '';
+          const want = expected[suffix];
+
+          const fail = [];
+          const check = (what, got, wanted) => {
+            if (got !== wanted) fail.push(`${what}: ${got} — expected ${wanted}`);
+          };
+
+          check('csv version', csv.spec.version, version);
+          check('openshift range', meta['com.redhat.openshift.versions'], want.range);
+          check('channel', meta['operators.operatorframework.io.bundle.channels.v1'], want.channel);
+          check(
+            'default channel',
+            meta['operators.operatorframework.io.bundle.channel.default.v1'],
+            want.channel,
+          );
+          check(
+            'container image',
+            csv.metadata.annotations.containerImage,
+            `quay.io/asalvati/file-integrity-console-plugin:${version}`,
+          );
+
+          // The annotation that makes the console offer the plugin at all.
+          // Without it the operator installs and nothing appears, with no error
+          // anywhere — which is the failure this repository keeps meeting.
+          check(
+            'console plugin annotation',
+            csv.metadata.annotations['console.openshift.io/plugins'],
+            '["file-integrity-console-plugin"]',
+          );
+
+          // OLM templates nothing inside a cluster-scoped manifest, so this
+          // namespace is literal in the shipped bundle. If it ever stops
+          // agreeing with the suggested namespace, the console cannot reach the
+          // plugin's backend and the failure is a blank page.
+          const plugin = read(
+            `${dir}/file-integrity-console-plugin_console.openshift.io_v1_consoleplugin.yaml`,
+          );
+          check(
+            'consoleplugin namespace',
+            plugin.spec.backend.service.namespace,
+            'openshift-file-integrity',
+          );
+          check(
+            'suggested namespace',
+            csv.metadata.annotations['operatorframework.io/suggested-namespace'],
+            plugin.spec.backend.service.namespace,
+          );
+
+          if (fail.length) {
+            fail.forEach((f) => console.error(`  ${f}`));
+            process.exit(1);
+          }
+          console.log(`${version}: ${want.range}, channel ${want.channel}, all as declared`);
+          EOF
+
+      # The counterpart of the chart's "No RBAC for the plugin ServiceAccount",
+      # and it cannot be spelled the same way. OLM creates the ServiceAccount
+      # only from `permissions`, and turns every entry there into a Role and a
+      # RoleBinding whatever its rules — so the bundle has to declare one entry
+      # to get an account at all, and the invariant becomes the emptiness of its
+      # rules rather than the absence of the block.
+      #
+      # Read rather than grepped, because "rules: []" is the whole assertion and
+      # a grep for it would pass just as happily on a rule added underneath.
+      - name: The plugin ServiceAccount is granted nothing
+        run: |
+          node - <<'EOF'
+          const fs = require('fs');
+          const yaml = require('js-yaml');
+          const version = JSON.parse(fs.readFileSync('package.json', 'utf8')).version;
+          const csv = yaml.load(
+            fs.readFileSync(
+              `dist/bundle/manifests/file-integrity-console-plugin.v${version}.clusterserviceversion.yaml`,
+              'utf8',
+            ),
+          );
+          const { permissions = [], clusterPermissions = [] } = csv.spec.install.spec;
+
+          const fail = [];
+          if (clusterPermissions.length) {
+            fail.push('the CSV declares clusterPermissions; it must declare none');
+          }
+          if (permissions.length !== 1) {
+            fail.push(`${permissions.length} permissions entries; expected exactly one`);
+          }
+          for (const p of permissions) {
+            if ((p.rules ?? []).length) {
+              fail.push(
+                `${p.serviceAccountName} is granted ${p.rules.length} rule(s); it must be granted none. ` +
+                  'Everything the backend does against the API server runs as the calling user, so a ' +
+                  "rule here means something has started using the pod's identity instead.",
+              );
+            }
+          }
+          if (fail.length) {
+            fail.forEach((f) => console.error(`  ${f}`));
+            process.exit(1);
+          }
+          console.log(
+            `${permissions[0].serviceAccountName}: no rules, no clusterPermissions`,
+          );
+          EOF
+          ! grep -rqE '^kind: (Cluster)?Role(Binding)?$' dist/bundle/manifests/
 
   image:
     name: Container image
