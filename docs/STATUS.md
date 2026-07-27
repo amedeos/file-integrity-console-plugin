@@ -641,10 +641,19 @@ through jsonpath as the string `null` — neither empty nor `[]` — so it calle
 grant too. Both halves are fixed: `null` counts as empty, and OLM's rule is tolerated by shape,
 not by its `olm.managed` label, which the Role holding the CSV's own permissions also carries.
 
+The teardown is checked too, and that took a second pass. `--clean-only` originally deleted and
+printed "worth confirming by hand" — but the check that matters cannot be done by hand afterwards:
+whether the other operators' plugins are *the ones that were there before* needs the list read
+**before** the deletion. Confirming it from memory of an earlier run is not verification. The
+script now snapshots it, and asserts after the teardown that nothing of the plugin survives, that
+the list is unchanged, that FIO's CSV and deployment are untouched and that there is still exactly
+one OperatorGroup. Five checks, run in both modes, so the full round trip is nineteen.
+
 **Next, in order:**
 
-1. **Re-run `hack/lab/bundle.sh 0.1.0`** and confirm 14 of 14. Then run it again for idempotence,
-   and once with `--clean-only`, checking afterwards that FIO is still healthy.
+1. **Re-run `hack/lab/bundle.sh 0.1.0`** and confirm 19 of 19, then again for idempotence. Open
+   Compute → File Integrity and use *View file* on a changed file: it is the one path no check
+   here can see, and the only one that needs the console proxy and the browsing user's token.
 2. **Submit**, one pull request per bundle to `community-operators-prod`, starting with 4.22 alone:
    it is the generation that has been installed end to end, and the community CI is better learned
    on one bundle than on three.

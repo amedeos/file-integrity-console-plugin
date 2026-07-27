@@ -131,6 +131,17 @@ info "generation $CLUSTER_GEN"
 
 log "Removing any previous installation"
 
+# Read before deleting, because afterwards there is nothing to compare against.
+# A glance at the list after a teardown cannot tell whether it is intact — only
+# whether it looks plausible — and on this cluster it holds three plugins
+# belonging to other operators.
+PLUGINS_BEFORE=$(oc get console.operator.openshift.io cluster \
+  -o jsonpath='{range .spec.plugins[*]}{@}{"\n"}{end}' 2>/dev/null |
+  grep -v "^${PLUGIN_NAME}$" | sort || true)
+FIO_CSV=$(oc get csv -n "$NAMESPACE" \
+  -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null |
+  grep '^file-integrity-operator\.' | head -1 || true)
+
 # Every deletion below names its object. This namespace belongs to the File
 # Integrity Operator as much as to the plugin, so a sweep — `oc delete all`, a
 # label selector that happens to match, deleting the namespace — would take FIO
@@ -168,11 +179,61 @@ if [ -n "$idx" ]; then
   info "removed $PLUGIN_NAME from console.operator"
 fi
 
+# --------------------------------------------------------------------------
+
+log "Checking what the teardown left"
+
+# OLM garbage-collects what the CSV owned, which is not instant. Nothing else
+# here waits, so give it a moment before calling a survivor a leftover.
+leftovers() {
+  local out=""
+  oc get consoleplugin "$PLUGIN_NAME" >/dev/null 2>&1 && out="$out consoleplugin"
+  oc get catalogsource "$CATALOG_SOURCE" -n "$MARKETPLACE_NS" >/dev/null 2>&1 &&
+    out="$out catalogsource"
+  oc get subscription "$PLUGIN_NAME" -n "$NAMESPACE" >/dev/null 2>&1 &&
+    out="$out subscription"
+  oc get serviceaccount "$PLUGIN_NAME" -n "$NAMESPACE" >/dev/null 2>&1 &&
+    out="$out serviceaccount"
+  oc get csv -n "$NAMESPACE" \
+    -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null |
+    grep -q "^${PLUGIN_NAME}\." && out="$out csv"
+  printf '%s' "${out# }"
+}
+waited=0
+while [ -n "$(leftovers)" ] && [ "$waited" -lt 30 ]; do
+  sleep 5
+  waited=$((waited + 5))
+done
+check "nothing of the plugin is left" "" "$(leftovers)"
+
+# The list is shared. Removing our entry with a merge patch on the whole field
+# would be shorter and would switch off every other operator's plugin, and the
+# damage would look exactly like a successful teardown.
+check "other consoles' plugins are untouched" "$PLUGINS_BEFORE" \
+  "$(oc get console.operator.openshift.io cluster \
+    -o jsonpath='{range .spec.plugins[*]}{@}{"\n"}{end}' 2>/dev/null | sort || true)"
+
+# This namespace is the File Integrity Operator's. Uninstalling the plugin must
+# be invisible to it — including its OperatorGroup, which is shared and which
+# nothing here may recreate.
+if [ -n "$FIO_CSV" ]; then
+  check "the File Integrity Operator is still installed" Succeeded \
+    "$(oc get csv "$FIO_CSV" -n "$NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null)"
+  check "its deployment is still ready" \
+    "$(oc get deployment file-integrity-operator -n "$NAMESPACE" \
+      -o jsonpath='{.spec.replicas}' 2>/dev/null)" \
+    "$(oc get deployment file-integrity-operator -n "$NAMESPACE" \
+      -o jsonpath='{.status.readyReplicas}' 2>/dev/null)"
+else
+  skip "the File Integrity Operator is still installed" "not installed here"
+fi
+
+check "exactly one OperatorGroup" 1 \
+  "$(oc get operatorgroup -n "$NAMESPACE" -o name 2>/dev/null | wc -l)"
+
 if [ "$CLEAN_ONLY" = true ]; then
   log "Clean only — stopping here"
-  info "The File Integrity Operator's own Subscription, CSV and OperatorGroup"
-  info "were not touched. Worth confirming that by hand at least once:"
-  info "  oc get csv,subscription,operatorgroup -n $NAMESPACE"
+  checks_report
   exit 0
 fi
 
