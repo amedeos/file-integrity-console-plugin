@@ -375,6 +375,15 @@ CI never runs and the gap simply sits there.
   user installs the operator. Re-pushing the tag alone against an empty queue
   built it immediately, which is the whole fix; the git object is annotated, so
   deleting and re-pushing preserves its message.
+- **A green `bundle` job does not predict the community pipeline, because the
+  two run different `operator-sdk` versions.** Ours pins 1.42.3. The community
+  hosted pipeline runs something older, and `operator-sdk bundle validate`
+  rejects `ConsolePlugin` as a bundle object — *unsupported media type
+  registry+v1* — up to and including **1.39.2**, accepting it from **1.40.0**.
+  Bisected against the real bundle, not inferred. `operator-registry` has it in
+  `supportedResources` and OLM installs it fine, which is why this surfaces
+  only at submission and never on a cluster. When the submission fails on
+  something CI passed, compare versions before changing the bundle.
 - **Helm parses YAML numbers as float64.** A default of `1048576` renders as
   `1.048576e+06` and crash-loops the pod. Numeric values passed as flags need
   `| int64`, and `helm template` must be exercised with the **defaults**, not

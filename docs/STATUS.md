@@ -654,13 +654,48 @@ Install, teardown and re-install were each run, in that order, so the round trip
 well as correct. This is the first installation of this operator from a release tag rather than a
 hand-pushed `:test` image.
 
+### The community submission — 27 July 2026
+
+[PR #10572][sub] submits the 4.22 bundle. The hosted pipeline ran and **failed one task**,
+`static-tests`, on one thing:
+
+```
+check_osdk_bundle_validate_operator_framework
+  Error: Value console.openshift.io/v1, Kind=ConsolePlugin:
+         unsupported media type registry+v1 for bundle object
+```
+
+**Our CI passes the same validation, and the difference is the `operator-sdk` version.** Bisected
+against this bundle: 1.28.1, 1.34.1, 1.36.1, 1.37.0, 1.38.0 and 1.39.2 all reject `ConsolePlugin`;
+**1.40.0 and later accept it**, and we pin 1.42.3. So the community pipeline runs something older
+than 1.40.0. `operator-registry` lists `ConsolePlugin` in `supportedResources` as cluster-scoped,
+and OLM installs the bundle without complaint — which is exactly why nothing on a cluster ever
+showed this.
+
+Two things it did *not* complain about, both of which were open questions:
+
+- **The missing `tests/scorecard/`.** Every operator examined ships one and we deliberately did
+  not, because three of the four stock tests concern CRDs this operator does not own. Not
+  required.
+- **The `ConsolePlugin` kind itself, at install time.** Only the validator objects.
+
+There is also a non-blocking warning that new operators should adopt the FBC workflow rather than
+`registry+v1` bundles. Worth reading before the 4.19 and 4.16 submissions, since it may change how
+the three bundles are kept apart.
+
+The fix is not ours to make: removing the `ConsolePlugin` would remove the product. The ask is for
+the pipeline's `operator-sdk` to be updated, or the check waived — the pipeline has an
+`apply-test-waivers` task, though the documented route is to ask the maintainers on the PR.
+
+[sub]: https://github.com/redhat-openshift-ecosystem/community-operators-prod/pull/10572
+
 **Next, in order:**
 
-1. **`hack/lab/console.sh 0.1.0 4.16 4.19`** — the two release builds have not been loaded by a
+1. **Answer on PR #10572** with the version bisection, and wait for a maintainer.
+2. **`hack/lab/console.sh 0.1.0 4.16 4.19`** — the two release builds have not been loaded by a
    console since they were published.
-2. **Submit**, one pull request per bundle to `community-operators-prod`, starting with 4.22 alone:
-   it is the generation that has been installed end to end, and the community CI is better learned
-   on one bundle than on three.
+3. **Submit the other two bundles** once the 4.22 one is through, and not before: whatever
+   resolves the validator question applies to all three.
 
 **Still on the lab cluster right now:** the plugin installed from the test catalogue
 (`fio-plugin-test` in `openshift-marketplace`), running
