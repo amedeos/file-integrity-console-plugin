@@ -46,6 +46,19 @@ re-derive them) and the verification procedure. Read it before picking the work 
 - **An `--extra-deny-list-file` flag was added** to the backend so that values can *add* patterns
   to the deny list without copying the defaults (a copy of the defaults goes stale and ends up
   permitting what a newer default would deny).
+- **`features.fileRetrieve` defaults to `true`**, where the plan said `false` — "whoever does not
+  want it does not expose the endpoint". Reversed on 26 July 2026 because the premise does not
+  hold: the switch grants nobody anything. Every read runs as the browsing user, is refused unless
+  they hold `pods/exec` in the scan namespace, obeys the deny list whoever asks, and is recorded
+  against their name in the API server's audit log. Off did not withhold a capability, it withheld
+  an answer from people already entitled to it — and left a node report that says a file changed
+  but cannot show what it now contains, which is the half of the feature an administrator opens
+  the page for. `false` remains available and remains meaningful: it makes the path not exist at
+  all, which is the right choice on 4.16 until the SPDY fallback has been exercised.
+  The *binary's* default stays `false`, and the asymmetry is deliberate — see the comment on the
+  flag in `backend/cmd/server/main.go`. It applies only when nothing sets the value, which in
+  practice means running outside a cluster, where enabling the feature makes startup reach for
+  `rest.InClusterConfig()` and the process exit instead of serving its assets.
 - **No k8s `Event` for the audit trail** (plan item 5.8): the structured log is all there is.
   Creating the Event with the caller's token fails precisely for the users who matter — someone
   denied `pods/exec` is usually denied `create events` too, and a request with no token has no
@@ -288,8 +301,8 @@ structural and the 4.16 case is the clean one on paper (the upgrade fails before
 streamed), which is exactly what was said the first time. Repeat the byte-count and `sha256`
 comparison against the file on the node before trusting it.
 
-Deliberately **not** disabled on the release branch. It is already off by default in the chart and
-in the binary, so nobody inherits it; forcing it off further would mean a semantic divergence in
+Deliberately **not** disabled on the release branch by a change of its own. Forcing it off there
+would mean a semantic divergence in
 `charts/`, which is how three branches become three products, and it would hide the untested path
 instead of testing it. The historical failure mode was silent, and only the byte comparison
 catches that — never a default.
@@ -394,23 +407,158 @@ OpenShift 4.16 is 1.29, 4.17 is 1.30, 4.19 is 1.32. So the SPDY fallback — the
 use behind it — runs on 4.16 alone, and 4.17 upwards take the same path as `main`. Narrower, not
 closed: nobody has read a file through the plugin on any cluster older than 4.22.
 
+## The OLM bundle — 26 July 2026
+
+The plugin is packaged as an operator bundle, to be published as a **community operator**. It is
+standalone for now; folding it into `openshift/file-integrity-operator` upstream stays a later
+question.
+
+**No controller was needed.** `ConsolePlugin` is a kind OLM accepts in a bundle — cluster-scoped,
+listed in `operator-registry/pkg/lib/bundle/supported_resources.go` — so the CSV carries the
+Deployment and the ConsolePlugin and Service ship as manifests beside it. What looked like it
+might need a small operator needs none.
+
+**The bundle is generated from the chart**, by `hack/bundle/build-bundle.mjs`. Writing it by hand
+would have made a second description of the same Deployment, Service and ConsolePlugin, with
+nothing comparing the two — the defect this repository has already built one CI job against. Only
+`hack/bundle/csv-base.yaml` is hand-written, and it contains nothing a chart has an opinion about.
+
+The generation is read from `package.json`'s version suffix and mapped, by a table in the
+generator, to an OpenShift range and a channel:
+
+| branch | version | `com.redhat.openshift.versions` | channel | `minKubeVersion` |
+|---|---|---|---|---|
+| `main` | `0.1.0` | `v4.22` | `stable-4.22` | 1.35.0 |
+| `release-4.19` | `0.1.0-ocp4.19` | `v4.19-v4.21` | `stable-4.19` | 1.32.0 |
+| `release-4.16` | `0.1.0-ocp4.16` | `v4.16-v4.18` | `stable-4.16` | 1.29.0 |
+
+The Kubernetes versions were read from `openshift/kubernetes`'s `go.mod` on each branch, not
+recalled. One package, three bundles that never meet: the range annotation decides which per-OCP
+catalogue each lands in.
+
+### What the research found, and where
+
+- **A community catalogue is not trusted.** `isCatalogSourceTrusted` in the console's OLM package
+  returns true for `redhat-operators` and nothing else, so the install form defaults our plugin to
+  *Disabled* and shows a trust warning. Install without touching it and the operator runs with no
+  menu entry — the same symptom as the 4.16 flag race, from an entirely different cause. This is
+  now the first paragraph of the README's OperatorHub section.
+- **`console.openshift.io/plugins` on the CSV** is what makes that control appear at all
+  (`operator-hub-subscribe.tsx`, `console-plugin-form-group.tsx`). Without it, nothing registers
+  the plugin and nothing says so.
+- **The console-patching Job cannot ship.** `Job` is not a supported bundle kind. It is not needed
+  either — the install form is what patches `consoles.operator.openshift.io`. The consequence is
+  that Helm enables the plugin automatically and OLM does not.
+- **The ServiceAccount must not ship.** OLM derives it from the deployment's `serviceAccountName`
+  and creates it itself; shipping the chart's copy as well is a duplicate that
+  `operator-sdk bundle validate` rejects outright. Dropping it costs nothing and keeps the
+  invariant: with no `permissions` in the CSV, the account OLM creates is bound to nothing.
+
+### Three defects the cluster found and no validator could
+
+The bundle passed `operator-sdk bundle validate` — the `operatorframework` suite plus `community`,
+`good-practices`, `capabilities` and `categories` — before, between and after each of these. Every
+one took installing it from a real catalogue.
+
+1. **The CSV declared only `AllNamespaces`, and the namespace it suggests refused it.**
+   `openshift-file-integrity` already carries an OperatorGroup with `targetNamespaces:
+   ["openshift-file-integrity"]`, created when the File Integrity Operator was installed — the very
+   reason the plugin wants to live there. "The OperatorGroup in the openshift-file-integrity
+   Namespace does not support the global installation mode."
+2. **Adding the other modes did not fix it.** The console does not pick a workable mode: it reduces
+   over the supported ones and prefers `AllNamespaces` whenever it is offered at all, then applies
+   the suggested namespace to that choice, rebuilding the impossible pair by default. Only
+   *withdrawing* the global mode changes the default. `OwnNamespace` alone is also the honest
+   answer — a global install would put the pod in `openshift-operators`, which is not the namespace
+   the ConsolePlugin names.
+3. **Dropping the ServiceAccount left the pod unschedulable.** `operator-sdk` rejects a
+   ServiceAccount in a bundle whose name matches one a deployment runs as, comparing against the
+   deployment alone whether or not anything is granted. That reads as "OLM will create it", and OLM
+   will not: it creates accounts from `permissions` and nothing else. So the deployment referenced
+   an account nobody made — "error looking up service account ... not found" — and the CSV sat in
+   `Installing`. The fix is a `permissions` entry with an empty rule list; see the invariant in
+   AGENTS.md, which no longer implies the chart and the bundle spell it the same way.
+
+### Seen on a real 4.22 console
+
+Installed from a one-bundle catalogue built with `opm`, against `:latest` rather than a tag, on the
+lab cluster:
+
+- **The install form offers the *Console plugin* control and defaults it to Disabled**, with the
+  untrusted-catalogue warning. Confirmed by hand, not inferred — it is the claim the README's
+  OperatorHub section opens with, and the reason it opens with it.
+- The operator installed into `openshift-file-integrity`; CSV `Succeeded`, deployment 2/2, the
+  service-serving certificate issued, and `/healthz` answering inside the pod.
+- **The invariant survives OLM.** A dedicated ServiceAccount, a Role and a RoleBinding whose rules
+  are empty, and no ClusterRole or ClusterRoleBinding anywhere.
+- **The console rolled itself.** Its pods were replaced when the plugin was enabled, so the manifest
+  cache that makes `oc rollout restart deployment/console` necessary after a `helm upgrade` is not a
+  step on this path.
+- Navigation entry present and the node reports rendering — the plugin works, installed this way.
+- **File retrieve returning a file's contents through the console.** This is the first time that
+  path has been seen end to end: it had been exercised only with `curl` against the Service, and
+  the modal's successful state had never been rendered by anything — jsdom cannot, and every
+  earlier harness answered 404 or 501 before reaching it. Reached through the console proxy, with
+  the browsing user's own token, from a bundle installed by OLM.
+
+And a fourth defect, found by using the plugin rather than by installing it: **"View file" answered
+"Feature disabled … enable it in the plugin Helm values"**, on a cluster with no Helm values. That
+was the visible half. The invisible half was worse — every setting arrived as a command-line flag,
+and an OLM install cannot change a container's args: they come from the CSV. So file retrieve was
+not merely off, it was **unreachable**, and the same went for the deny lists and the byte limit. The
+chart now renders the tunable settings as environment variables, which a Subscription *can* override
+(`spec.config.env`, merged by name), and the binary reads each as the default for the matching flag
+so nothing that passed flags before has changed.
+
+Still unverified: the other two generations' bundles have been generated and validated but never
+installed, there being no 4.16 or 4.19 cluster; and nothing has been submitted anywhere.
+
+### One limit worth knowing before publishing
+
+**The `ConsolePlugin` outlives the operator.** It is cluster-scoped and OLM gives it no
+ownerReference, so deleting the CSV leaves it behind — observed. Whoever uninstalls is left with a
+plugin name that resolves to nothing, and the console logs a failed load on every page view. The
+chart avoids this with a pre-delete Job; a bundle cannot, because `Job` is not a kind OLM accepts.
+Uninstalling therefore needs `oc delete consoleplugin file-integrity-console-plugin` by hand, and
+the README has to say so.
+
 ## Where to pick up — 26 July 2026, later
 
-All three generations exist and are merged: `main`, `release-4.19` (#23), `release-4.16` (#22).
-Each release branch contains `origin/main`; the `branch-delta` job is green on both.
+All three generations exist and are merged: `main`, `release-4.19` (#23), `release-4.16` (#22). The
+OLM bundle is on `feat/olm-bundle`, ten commits, **pushed, installed and working end to end on the
+lab cluster** — file retrieve included. The pull request was deliberately held open, and every
+defect above was found after the branch was first pushed, which is the argument for holding it.
 
-**Left to do**, none of it blocking:
+**Next, in order:**
 
-- **`terser-webpack-plugin` is required by `webpack.config.ts` and declared nowhere.** It resolves
-  today only because webpack happens to depend on it, which is why deduping webpack upwards broke
-  the 4.19 build. Fixed on `main` in this same pull request; the release branches pick it up by
-  merge-forward, where `package.json` conflicts by design.
-- **Lab cleanup**: the internal registry on `emptyDir`, the BuildConfig, the ImageStream, the
-  `fio-curl` pod and the `fio-viewer` ServiceAccount and RoleBinding are all left over from before
-  the image came from Quay.
-- **Blocked on a real 4.16 cluster**: the SPDY exec fallback — read a file through the plugin, read
-  it on the node, compare byte count and `sha256` before looking at the interface — and the file
-  content modal's successful state, which no harness has ever rendered.
+1. **Open and merge the bundle pull request** into `main`. Base `main`, merge commit — the commits
+   carry distinct decisions and squashing would lose them. CI has to be green on the `bundle` job
+   first: it generates and validates on a clean machine, rather than on one where `helm` and
+   `operator-sdk` were fetched by hand. Then merge `main` forward into both release branches; that
+   one will conflict in `src/components/FileContentModal.tsx`, which is in `release-4.16`'s
+   declared delta because of the PatternFly 5 markup. Keep the branch's markup and take the new
+   string.
+2. **Cut the tags.** `v0.1.0` on `main`, `v0.1.0-ocp4.19` and `v0.1.0-ocp4.16` on the release
+   branches. No tag has ever been cut, and the README's install command already names `...:0.1.0` —
+   a tag that does not exist. A bundle names an immutable image, so this comes before any
+   submission, and the generator's `IfNotPresent`/`Always` choice depends on it too.
+3. **Submit**, one pull request per bundle to `community-operators-prod`, starting with 4.22 alone:
+   it is the generation that has been installed end to end, and the community CI is better learned
+   on one bundle than on three.
+
+**Still on the lab cluster right now:** the plugin installed from the test catalogue
+(`fio-plugin-test` in `openshift-marketplace`), running
+`quay.io/asalvati/file-integrity-console-plugin:test`. Tear it down with `oc delete subscription`,
+`oc delete csv`, `oc delete consoleplugin file-integrity-console-plugin` — the last one is
+cluster-scoped and has no owner reference, so nothing else removes it — and `oc delete
+catalogsource fio-plugin-test -n openshift-marketplace`.
+
+**Left over:** on a real 4.16 cluster, the SPDY exec fallback — read a file through the plugin, read
+it on the node, compare byte count and `sha256` before looking at the interface. The lab leftovers
+are gone: the internal registry's BuildConfig, ImageStream, builds, the `fio-curl` pod and the
+`fio-viewer` account were all removed on 26 July. The cluster's image registry itself is still
+`Managed` on `emptyDir`, deliberately untouched — 60 ImageStreams belonging to other work now
+depend on it, so turning it off is no longer a cleanup.
 
 ## Environment notes
 
@@ -422,6 +570,17 @@ Each release branch contains `origin/main`; the `branch-delta` job is green on b
   ```
   `/var/tmp` is a tmpfs: it empties when the container restarts, so this has to be redone every
   time. The same goes for `helm`, also absent (`oc` and `kubectl` are present).
+- Building the OLM bundle needs `helm` and, to check it, `operator-sdk`; neither is preinstalled
+  and both are single binaries:
+  ```sh
+  curl -sfL https://get.helm.sh/helm-v3.16.4-linux-amd64.tar.gz | tar xz -C /var/tmp \
+    --strip-components=1 linux-amd64/helm
+  curl -sfL -o /var/tmp/operator-sdk \
+    https://github.com/operator-framework/operator-sdk/releases/download/v1.42.3/operator-sdk_linux_amd64
+  chmod +x /var/tmp/operator-sdk && export PATH=/var/tmp:$PATH
+  ```
+  The `multiarch` validator additionally wants to pull the image and will warn that it cannot;
+  there is no container runtime here.
 - `yarn` is not on the PATH: use the committed binary,
   `node .yarn/releases/yarn-4.14.1.cjs <cmd>`.
 - `/home/agent` is a 1 GB tmpfs and the yarn cache lives under it, so an install eventually fails

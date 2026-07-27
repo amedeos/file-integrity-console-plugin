@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img"
+     aria-label="File Integrity Console Plugin">
+  <title>File Integrity Console Plugin</title>
+  <!--
+    A file whose corner is folded, with a check inside a shield: the operator
+    reports, file by file, whether what is on a node still matches the baseline.
+    Deliberately not Red Hat's palette or marks — this is a third-party plugin
+    for their operator, not something published by them.
+  -->
+  <rect width="128" height="128" rx="20" fill="#1b2733"/>
+  <path d="M36 26h35l21 21v55a5 5 0 0 1-5 5H36a5 5 0 0 1-5-5V31a5 5 0 0 1 5-5z"
+        fill="#e8edf2"/>
+  <path d="M71 26l21 21H76a5 5 0 0 1-5-5z" fill="#a7b6c4"/>
+  <path d="M64 55l19 7v16c0 11-8 20-19 24-11-4-19-13-19-24V62z" fill="#2b9af3"/>
+  <path d="M55 79l7 7 15-15" fill="none" stroke="#ffffff" stroke-width="7"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

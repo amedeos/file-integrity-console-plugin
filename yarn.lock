@@ -8020,6 +8020,7 @@ __metadata:
     jest: "npm:^30.4.2"
     jest-environment-jsdom: "npm:^30.4.1"
     jest-junit: "npm:^17.0.0"
+    js-yaml: "npm:^4.1.0"
     pluralize: "npm:^8.0.0"
     prettier: "npm:^3.8.3"
     prettier-stylelint: "npm:^0.4.2"

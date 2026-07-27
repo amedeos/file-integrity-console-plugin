@@ -74,8 +74,13 @@ const useErrorText = () => {
         case 501:
           return {
             title: t('Feature disabled'),
+            // Deliberately does not name the mechanism. The plugin can be
+            // installed from a Helm chart or from OperatorHub, and the two are
+            // turned on in entirely different places; naming one sends half the
+            // administrators looking for a file that does not exist on their
+            // cluster, which is exactly what the earlier wording did.
             body: t(
-              'Reading files from nodes is disabled in this installation. An administrator can enable it in the plugin Helm values.',
+              'Reading files from nodes is disabled in this installation. A cluster administrator can enable it; see the plugin documentation.',
             ),
           };
         default:

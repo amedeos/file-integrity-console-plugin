@@ -54,11 +54,19 @@ file it touches and buries real changes.
 
 ## Invariants — breaking one of these is a design change, not a tweak
 
-- **The backend's ServiceAccount has no Role or ClusterRole.** Everything it
-  does against the API server runs as the calling user, through
-  `SelfSubjectReview` and `SelfSubjectAccessReview`. CI asserts that the chart
-  renders no RBAC for it. If you find yourself needing a rule, something has
-  started using the pod's identity instead of the caller's.
+- **The backend's ServiceAccount is granted no rule.** Everything it does
+  against the API server runs as the calling user, through `SelfSubjectReview`
+  and `SelfSubjectAccessReview`. If you find yourself needing a rule, something
+  has started using the pod's identity instead of the caller's.
+  The chart says this by rendering no Role or ClusterRole at all, and CI asserts
+  that. The OLM bundle cannot say it the same way: OLM creates a
+  ServiceAccount only from `permissions`, and turns every entry there into a
+  Role and a RoleBinding regardless of its rules. So the bundle declares one
+  entry with an **empty rule list**, and CI asserts the emptiness — a check on
+  content, which is stronger than a check for an absent block. Running the pod
+  as the namespace's `default` account instead would create no RBAC object at
+  all and was rejected for it: `default` is shared, so a rule granted to it
+  later for an unrelated reason would be inherited here in silence.
 - **No service-account fallback.** A request without a bearer token is a 401.
   Never let it be served with the plugin's own credentials.
 - **The deny list is checked before the caller is authenticated**, so probing
@@ -95,7 +103,22 @@ file it touches and buries real changes.
   `0.1.1`. Valid semver, accepted by the manifest schema, and the console then
   displays which build is installed. Without it, the same `v0.1.1` cut on two
   branches produces two different images racing for one image tag — and with
-  `IfNotPresent` the loser is invisible.
+  `IfNotPresent` the loser is invisible. The OLM bundle reads that same suffix
+  to decide which OpenShift catalogues it belongs in, so it is now load-bearing
+  in a second place.
+- **The OLM bundle is generated from the chart and never written beside it.**
+  `hack/bundle/build-bundle.mjs` renders the chart and rearranges it; only what
+  a chart has no opinion about — display name, icon, install modes, annotations
+  — is hand-written, in `hack/bundle/csv-base.yaml`. Editing a manifest under
+  `dist/bundle/` is editing a build artefact. A second hand-written copy of the
+  Deployment and the ConsolePlugin is the same defect as a fix authored on a
+  release branch: two descriptions of one thing, and nothing comparing them.
+  The CSV declares **one `permissions` entry with an empty rule list and no
+  `clusterPermissions`** — which is how the no-rules invariant survives into
+  OLM, and not the same spelling the chart uses. See that invariant above
+  before changing it: dropping the block altogether leaves the ServiceAccount
+  uncreated and the pod unschedulable, and a bundle cannot ship the account
+  itself.
 
 ## Supporting more than one console generation
 
@@ -253,7 +276,8 @@ Two things this buys that a cluster does not:
 
 **Paths that must never diverge between branches:** `backend/`, `charts/`,
 `Containerfile`, `.github/workflows/ci.yml`, `console-extensions.json`,
-`locales/`, `tsconfig.json`, and all of `src/lib/` except the three shims.
+`hack/`, `locales/`, `tsconfig.json`, and all of `src/lib/` except the three
+shims.
 
 The single exception is `Chart.yaml`'s `version` and `appVersion`, which carry
 the generation suffix on a release branch. They name the build the chart
