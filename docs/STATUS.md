@@ -710,8 +710,12 @@ table in `AGENTS.md`, which records 4.16–4.18 as PatternFly 5.2 — true of th
 console loads, not of the React components it shares. What has *not* been established is the
 mechanism between that and the missing footer. Both these are still open:
 
-- whether webpack accepts the console's 4.278.0 for a `~5.2.2` request because the SDK declares
-  these shared modules as singletons, or falls back to the plugin's own copy;
+- whether webpack accepts the console's 4.278.0 for the plugin's request, or falls back to the
+  plugin's own copy. Read from the entry the console serves: the plugin *provides*
+  `@patternfly/react-core` 5.2.3 and *consumes* it at `^5.2.3`, against the console's 4.278.0. If
+  the module is shared as a singleton the console's copy wins regardless, and webpack says so in
+  the **browser** console — `Unsatisfied version … of shared singleton module`. That message
+  present or absent is the whole answer, and it costs one look at a running console;
 - whether PatternFly 4's `Modal` renders `actions` the way 5's does.
 
 Answer those before choosing a fix, because they point at different ones: build the branch against
