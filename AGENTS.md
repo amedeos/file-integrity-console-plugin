@@ -67,6 +67,18 @@ file it touches and buries real changes.
   as the namespace's `default` account instead would create no RBAC object at
   all and was rejected for it: `default` is shared, so a rule granted to it
   later for an unrelated reason would be inherited here in silence.
+
+  **Under OLM the account does end up holding exactly one rule, and it is not
+  ours.** Every CSV gets an `OperatorCondition`, and OLM creates a Role — named
+  after the CSV, owned by that condition, labelled `olm.managed` — letting the
+  operator `get`, `update` and `patch` **its own**, restricted by
+  `resourceNames` to that single object. It cannot be declined and it reaches
+  nothing else; this plugin never uses it. Observed on 4.22 by installing and
+  looking, after the check in `hack/lab/bundle.sh` reported it. That check now
+  tolerates that rule *by shape* — widen it, drop the `resourceNames`, or add a
+  second rule, and it fails again. Do not relax it to "OLM-managed Roles are
+  fine": the Role holding whatever the CSV's `permissions` declares carries the
+  same label.
 - **No service-account fallback.** A request without a bearer token is a 401.
   Never let it be served with the plugin's own credentials.
 - **The deny list is checked before the caller is authenticated**, so probing

@@ -402,6 +402,35 @@ bound_roles() {
     ' "$NAMESPACE" "$SA"
 }
 
+# OLM grants one rule of its own, whatever the bundle declares: every CSV gets
+# an OperatorCondition, and the operator is allowed to update its own. Observed
+# on 4.22 — a Role named after the CSV, owned by the OperatorCondition and
+# labelled olm.managed, restricted by resourceNames to that one object. It is
+# not a way to reach anything else and cannot be declined, so it is tolerated
+# by shape rather than by name: widen it, or add a second rule, and this fails.
+#
+# `rules` reads back as the string "null" on a Role with none, which is neither
+# empty nor "[]" — the first version of this check called that a violation and
+# reported our own empty Role as a grant.
+# shellcheck disable=SC2016
+rules_beyond_own_condition() {
+  node -e '
+    const csv = process.argv[1];
+    let raw = "";
+    process.stdin.on("data", (d) => (raw += d));
+    process.stdin.on("end", () => {
+      const text = raw.trim();
+      const rules = !text || text === "null" ? [] : JSON.parse(text);
+      const isOwnCondition = (r) =>
+        (r.apiGroups || []).join() === "operators.coreos.com" &&
+        (r.resources || []).join() === "operatorconditions" &&
+        (r.resourceNames || []).join() === csv;
+      const bad = rules.filter((r) => !isOwnCondition(r));
+      if (bad.length) process.stdout.write(JSON.stringify(bad));
+    });
+  ' "$1"
+}
+
 GRANTED=""
 CLUSTER_ROLES=0
 while read -r kind scope name; do
@@ -412,14 +441,14 @@ while read -r kind scope name; do
   else
     rules=$(oc get role "$name" -n "$scope" -o jsonpath='{.rules}' 2>/dev/null)
   fi
-  case $rules in
-  '' | '[]') ;;
-  *) GRANTED="$GRANTED $kind/$name" ;;
-  esac
+  if [ -n "$(printf '%s' "$rules" | rules_beyond_own_condition "$CSV_NAME")" ]; then
+    GRANTED="$GRANTED $kind/$name"
+  fi
 done < <(bound_roles)
 
 check "no ClusterRole is bound to the ServiceAccount" 0 "$CLUSTER_ROLES"
-check "every Role bound to it grants nothing" "" "${GRANTED# }"
+check "no Role bound to it grants anything but its own OperatorCondition" \
+  "" "${GRANTED# }"
 
 # And the same question asked of the API server rather than of the manifests,
 # because that is what actually decides. A ServiceAccount always retains the

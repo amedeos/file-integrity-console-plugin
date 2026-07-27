@@ -596,13 +596,43 @@ ClusterRoleBinding that names the ServiceAccount and requiring the roles behind 
 and once of the API server, with `oc auth can-i` as that account. The manifests are what we
 control; the API server is what actually decides.
 
+### What the first scripted install found — 27 July 2026
+
+`hack/lab/bundle.sh 0.1.0` ran end to end on the lab cluster: catalogue READY in 50s, CSV
+`Succeeded` in 35s, 13 of 14 checks green on the first attempt. Two of those greens are new
+information rather than confirmation:
+
+- **`imagePullPolicy: IfNotPresent`.** Every previous install pointed at `:test`, so the branch the
+  generator takes for an immutable reference had never executed on a cluster.
+- **The running image's digest equals the tag's.** The check was left strict knowing a manifest
+  list would have made it fail wrongly; it does not, so the tag is a single-architecture image and
+  the check means what it says.
+
+Getting there cost three defects in the script itself, none of them in the bundle, and each found
+only by running it:
+
+1. **`opm` from the OpenShift mirror unpacks as `opm-rhel8`.** The script looked for `opm`.
+2. **Pulling an image needs a containers signature policy**, which the build host did not have.
+   Everything up to `podman push` worked and everything after it was unreachable. The script now
+   carries a throwaway policy of its own — `HOME` redirected for `opm`, which has no flag for it,
+   and `--signature-policy` for podman, which cannot be given a different `HOME` without losing
+   sight of its own image storage. Prerequisites are all checked in the preflight now.
+3. **podman hides `--signature-policy` from `--help`**, so asking the help text whether it is
+   supported answered no on a podman that accepts it. The probe invokes podman with the flag and a
+   context that does not exist: only an absent flag says `unknown flag`.
+
+And one finding that was not about the script at all — see the RBAC invariant in `AGENTS.md`.
+**OLM grants the ServiceAccount one rule regardless of what the bundle declares**: `get`, `update`
+and `patch` on its own `OperatorCondition`, restricted by `resourceNames` to that single object.
+Our own Role is genuinely empty. The check reported both, because a Role with no rules reads back
+through jsonpath as the string `null` — neither empty nor `[]` — so it called our empty Role a
+grant too. Both halves are fixed: `null` counts as empty, and OLM's rule is tolerated by shape,
+not by its `olm.managed` label, which the Role holding the CSV's own permissions also carries.
+
 **Next, in order:**
 
-1. **Run `hack/lab/bundle.sh 0.1.0` against the lab cluster.** This is the first install from a
-   release tag: every earlier one pointed at `:test`, which means `imagePullPolicy: Always`, so
-   the `IfNotPresent` branch the generator chooses for an immutable reference has never run on a
-   cluster. Then run it again — it has to be idempotent — and once with `--clean-only`, checking
-   afterwards that FIO is still healthy.
+1. **Re-run `hack/lab/bundle.sh 0.1.0`** and confirm 14 of 14. Then run it again for idempotence,
+   and once with `--clean-only`, checking afterwards that FIO is still healthy.
 2. **Submit**, one pull request per bundle to `community-operators-prod`, starting with 4.22 alone:
    it is the generation that has been installed end to end, and the community CI is better learned
    on one bundle than on three.
