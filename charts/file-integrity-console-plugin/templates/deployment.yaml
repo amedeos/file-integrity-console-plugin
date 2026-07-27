@@ -29,21 +29,42 @@ spec:
       containers:
         - name: {{ template "file-integrity-console-plugin.name" . }}
           image: {{ required "Plugin image must be specified!" .Values.plugin.image }}
+          # Structural settings stay flags: they describe how this container is
+          # wired, not how the installation is configured, and nobody should be
+          # changing them from outside.
           args:
             - --listen=:{{ .Values.plugin.port }}
             - --tls-cert-file=/var/cert/tls.crt
             - --tls-key-file=/var/cert/tls.key
             - --static-dir=/opt/app-root/web
-            - --fio-namespace={{ .Values.backend.fileIntegrityNamespace }}
-            # int64: Helm parses YAML numbers as float64, so the default
-            # renders as 1.048576e+06 and the binary rejects the flag.
-            - --max-file-bytes={{ .Values.backend.maxFileBytes | int64 }}
-            - --enable-file-retrieve={{ .Values.backend.features.fileRetrieve }}
+          # Everything an administrator might want to change goes through the
+          # environment instead, because that is the only channel an OLM install
+          # has. A Subscription can override a container's env by name
+          # (`spec.config.env`) and can mount volumes, but it cannot touch args:
+          # those come from the CSV. As flags, these settings were unreachable
+          # from OperatorHub — file retrieve could not be turned on at all, and
+          # the interface pointed the administrator at Helm values that do not
+          # exist on that path.
+          #
+          # The binary reads each of these as the default for the matching flag,
+          # so a flag still wins and nothing that passed flags before has
+          # changed.
+          env:
+            - name: PLUGIN_FIO_NAMESPACE
+              value: {{ .Values.backend.fileIntegrityNamespace | quote }}
+            # int64: Helm parses YAML numbers as float64, so the default renders
+            # as 1.048576e+06 and the binary rejects it.
+            - name: PLUGIN_MAX_FILE_BYTES
+              value: {{ .Values.backend.maxFileBytes | int64 | quote }}
+            - name: PLUGIN_ENABLE_FILE_RETRIEVE
+              value: {{ .Values.backend.features.fileRetrieve | quote }}
             {{- if .Values.backend.denyList }}
-            - --deny-list-file=/etc/file-integrity-plugin/deny-list.txt
+            - name: PLUGIN_DENY_LIST_FILE
+              value: /etc/file-integrity-plugin/deny-list.txt
             {{- end }}
             {{- if .Values.backend.extraDenyList }}
-            - --extra-deny-list-file=/etc/file-integrity-plugin/extra-deny-list.txt
+            - name: PLUGIN_EXTRA_DENY_LIST_FILE
+              value: /etc/file-integrity-plugin/extra-deny-list.txt
             {{- end }}
           ports:
             - containerPort: {{ .Values.plugin.port }}
