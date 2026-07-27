@@ -669,6 +669,29 @@ hand-pushed `:test` image.
 cluster-scoped and has no owner reference, so nothing else removes it — and `oc delete
 catalogsource fio-plugin-test -n openshift-marketplace`.
 
+### Open defect: the re-initialise confirmation on 4.16 — 27 July 2026
+
+Reported from `hack/lab/console.sh 0.1.0 4.16`, the first time that build had been loaded by a
+console since it was published. Clicking **Re-initialize baseline** on a node opens the
+confirmation, but its buttons are not usable. Everything else on that console worked.
+
+Deferred deliberately, not forgotten. Two questions decide the diagnosis and neither has been
+answered yet, so nothing below is more than a starting point:
+
+- **Are the buttons absent, or present and greyed out?** Absent means the PatternFly 5 `Modal` is
+  not rendering its footer from the `actions` prop. Greyed out means `isDisabled={submitting}` is
+  stuck true, which would be a state bug in `ReinitActions.tsx` and nothing to do with PatternFly.
+  `submitting` initialises to `false`, so the second reading needs an explanation the code does
+  not currently offer.
+- **Does *View file* show its Download and Close buttons on the same console?** It is the same
+  `actions={[...]}` spelling in `FileContentModal.tsx`. If those appear, the fault is local to
+  `ReinitActions`. If they do not, it is the `Modal` the console *shares* with the plugin — and
+  that would affect the whole 4.16–4.18 branch rather than one dialog.
+
+The second question is why this belongs in the notes rather than only in an issue: PatternFly is a
+shared module on 4.16–4.18, so the component that renders may come from the console's build rather
+than the one in the lockfile, and CI cannot see the difference.
+
 **Left over:** on a real 4.16 cluster, the SPDY exec fallback — read a file through the plugin, read
 it on the node, compare byte count and `sha256` before looking at the interface. The lab leftovers
 are gone: the internal registry's BuildConfig, ImageStream, builds, the `fio-curl` pod and the
