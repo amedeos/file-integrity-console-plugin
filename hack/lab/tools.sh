@@ -290,7 +290,16 @@ setup_containers_policy() {
   printf '%s\n' '{"default":[{"type":"insecureAcceptAnything"}]}' >"$policy"
   info "no host policy.json — using a throwaway one, $policy"
 
-  if podman build --help 2>/dev/null | grep -q -- '--signature-policy'; then
+  # Asked by trying, not by reading `podman build --help`: podman inherits
+  # --signature-policy from buildah and hides it there, so grepping the help
+  # answers "no" on a podman that accepts it perfectly well. The probe points
+  # at a context directory that does not exist, so it fails either way and
+  # touches neither the network nor any image — what matters is which
+  # complaint comes back.
+  local probe
+  probe=$(podman build --signature-policy "$policy" \
+    "$TOOLS_DIR/no-such-build-context" 2>&1 || true)
+  if ! printf '%s' "$probe" | grep -qiE 'unknown (flag|shorthand)'; then
     PODMAN_POLICY_ARGS=(--signature-policy "$policy")
     return 0
   fi
