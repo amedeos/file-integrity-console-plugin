@@ -552,13 +552,22 @@ the merge-forward needed no manual work at all: both branches came out at their 
 four files on `release-4.19` and nine on `release-4.16`, with `yarn install --immutable` accepting
 the auto-merged lockfile on both.
 
+**The three tags are cut** — `0.1.0` on `main`, `0.1.0-ocp4.19` and `0.1.0-ocp4.16` on the release
+branches — and each names an image on Quay with exactly the same string. The first release this
+repository has ever made, and what finally makes the README's install command true.
+
+Getting there cost one more silent failure, recorded in `AGENTS.md`: pushing two tags in a single
+command produced **one** build. `0.1.0-ocp4.16` never appeared in Quay's build history at all —
+not failed, absent — because Quay builds one image at a time here and drops what it cannot queue.
+Re-pushing that tag alone against an empty queue built it immediately. Push one tag at a time, and
+read the build API rather than believing the push.
+
 **Next, in order:**
 
-1. **Cut the tags**: `0.1.0` on `main`, `0.1.0-ocp4.19` and `0.1.0-ocp4.16` on the release
-   branches — no `v`, for the reason in the section above. Check the Quay build API after each one
-   rather than assuming, and confirm the image tag is what the bundle names. A bundle names an
-   immutable image, so this comes before any submission, and the generator's `IfNotPresent`/
-   `Always` choice depends on it too.
+1. **Install the real 4.22 bundle on the lab cluster**, generated with no `BUNDLE_IMAGE` so it
+   names `0.1.0`. Every install so far pointed at `:test`, which means `imagePullPolicy: Always`;
+   with a release tag the generator chooses `IfNotPresent`, and that branch has never run on a
+   cluster. It is also the first time the bundle would pull an image nobody pushed by hand.
 2. **Submit**, one pull request per bundle to `community-operators-prod`, starting with 4.22 alone:
    it is the generation that has been installed end to end, and the community CI is better learned
    on one bundle than on three.
