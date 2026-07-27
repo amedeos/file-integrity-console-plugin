@@ -443,7 +443,19 @@ CI fails if the first three disagree. So:
 git tag 0.1.1 && git push origin 0.1.1
 ```
 
-Quay builds the tag into `quay.io/asalvati/file-integrity-console-plugin:0.1.1`.
+Quay builds the tag into `quay.io/asalvati/file-integrity-console-plugin:0.1.1`
+— but **push one tag at a time and check that it did.** Quay builds one image
+at a time, and a tag pushed while the queue is busy can be dropped without any
+record of it: the git tag exists, the build history does not mention it, and
+nothing says so until something tries to pull the image. Verify before
+believing it:
+
+```sh
+curl -s https://quay.io/api/v1/repository/asalvati/file-integrity-console-plugin?includeTags=true \
+  | python3 -c 'import sys,json; print(sorted(json.load(sys.stdin)["tags"]))'
+```
+
+Re-pushing the tag on its own, once the queue is empty, is the whole remedy.
 
 **The tag carries no `v`.** Quay's build trigger names the image after the git
 ref verbatim, so `v0.1.1` would produce `:v0.1.1` — while the bundle, the CSV

@@ -319,6 +319,19 @@ CI never runs and the gap simply sits there.
 
 ## Things that have already cost time
 
+- **Quay builds one image at a time, and drops what it cannot queue.** Pushing
+  two tags in one command produced one build: `0.1.0-ocp4.19` was queued and
+  `0.1.0-ocp4.16` never appeared in the build history at all — not failed, not
+  cancelled, absent. Two branch builds pushed while the queue was busy were
+  recorded as `cancelled` in the same way. Push **one tag at a time, and check
+  that a build exists for it** before treating the release as made. The failure
+  is silent from both ends: git accepted the tag and reports success, and Quay
+  has nothing to report because it never started. For a bundle naming an
+  immutable image that is how a dead reference gets published — the tag is
+  real, the manifest references it, and nothing resolves the image until a
+  user installs the operator. Re-pushing the tag alone against an empty queue
+  built it immediately, which is the whole fix; the git object is annotated, so
+  deleting and re-pushing preserves its message.
 - **Helm parses YAML numbers as float64.** A default of `1048576` renders as
   `1.048576e+06` and crash-loops the pod. Numeric values passed as flags need
   `| int64`, and `helm template` must be exercised with the **defaults**, not
