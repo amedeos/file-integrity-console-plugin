@@ -99,9 +99,18 @@ file it touches and buries real changes.
 - **The version is written in four places** — `version` and
   `consolePlugin.version` in `package.json`, `appVersion` and `version` in the
   chart — and a git tag is what names the released image. Keep them in step.
+- **A tag is the version, with no `v` in front**: `0.1.1`, not `v0.1.1`. Quay's
+  build trigger names the image after the git ref verbatim and cannot edit it,
+  so a `v` reaches the image tag, and everything that references the release —
+  the bundle's `containerImage`, the CI check on it, the README — says `0.1.1`.
+  Dropping the prefix leaves one string rather than two that differ by one
+  character, which is the shape a typo hides in. Observed: `v0.1.0` was cut,
+  and Quay queued a build tagged `v0.1.0` while the bundle it was meant to
+  serve pointed at `0.1.0`. Nothing would have failed until a user installed
+  the operator and the pod could not pull.
 - **A release branch's version carries its generation**: `0.1.1-ocp4.16`, not
   `0.1.1`. Valid semver, accepted by the manifest schema, and the console then
-  displays which build is installed. Without it, the same `v0.1.1` cut on two
+  displays which build is installed. Without it, the same `0.1.1` cut on two
   branches produces two different images racing for one image tag — and with
   `IfNotPresent` the loser is invisible. The OLM bundle reads that same suffix
   to decide which OpenShift catalogues it belongs in, so it is now load-bearing

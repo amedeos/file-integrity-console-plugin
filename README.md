@@ -440,10 +440,16 @@ CI fails if the first three disagree. So:
 
 ```sh
 # bump all four, commit, then
-git tag v0.1.1 && git push origin v0.1.1
+git tag 0.1.1 && git push origin 0.1.1
 ```
 
 Quay builds the tag into `quay.io/asalvati/file-integrity-console-plugin:0.1.1`.
+
+**The tag carries no `v`.** Quay's build trigger names the image after the git
+ref verbatim, so `v0.1.1` would produce `:v0.1.1` — while the bundle, the CSV
+and this document all say `:0.1.1`. Dropping the prefix makes the version, the
+git tag and the image tag one string instead of three that have to be kept in
+agreement by hand. A release branch tags the same way: `0.1.1-ocp4.16`.
 
 ### Publishing the OLM bundle
 
