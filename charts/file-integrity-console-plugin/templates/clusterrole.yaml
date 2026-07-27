@@ -1,0 +1,53 @@
+{{- if include "file-integrity-console-plugin.selfRegisters" . }}
+# The only authority this ServiceAccount ever holds, and it is not about data.
+#
+# The invariant is unchanged where it matters: the request-serving path has no
+# authority of its own, and every API-server call made on behalf of a browsing
+# user still goes through that user's token, resolved with SelfSubjectReview
+# and checked with SelfSubjectAccessReview. What is granted here is the right
+# to register the plugin with the console — one object, its own — which reaches
+# nothing belonging to anyone.
+#
+# `resourceNames` cannot constrain `create`: the name does not exist yet when
+# the request is admitted. So create is unrestricted on the type and every verb
+# that can be narrowed is narrowed to this plugin's own object. No delete, no
+# list, no watch.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "file-integrity-console-plugin.name" . }}
+  labels:
+    {{- include "file-integrity-console-plugin.labels" . | nindent 4 }}
+rules:
+  - apiGroups:
+      - console.openshift.io
+    resources:
+      - consoleplugins
+    verbs:
+      - create
+  - apiGroups:
+      - console.openshift.io
+    resources:
+      - consoleplugins
+    resourceNames:
+      - {{ include "file-integrity-console-plugin.name" . }}
+    verbs:
+      - get
+      - update
+      - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "file-integrity-console-plugin.name" . }}
+  labels:
+    {{- include "file-integrity-console-plugin.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "file-integrity-console-plugin.name" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "file-integrity-console-plugin.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
