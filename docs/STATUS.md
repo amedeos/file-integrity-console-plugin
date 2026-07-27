@@ -522,27 +522,44 @@ chart avoids this with a pre-delete Job; a bundle cannot, because `Job` is not a
 Uninstalling therefore needs `oc delete consoleplugin file-integrity-console-plugin` by hand, and
 the README has to say so.
 
-## Where to pick up — 26 July 2026, later
+## The tag carries no `v` — 27 July 2026
 
-All three generations exist and are merged: `main`, `release-4.19` (#23), `release-4.16` (#22). The
-OLM bundle is on `feat/olm-bundle`, ten commits, **pushed, installed and working end to end on the
-lab cluster** — file retrieve included. The pull request was deliberately held open, and every
-defect above was found after the branch was first pushed, which is the argument for holding it.
+`v0.1.0` was cut on `main` and pushed, and Quay immediately queued a build tagged **`v0.1.0`**: the
+build trigger names the image after the git ref verbatim and offers no way to edit it. Everything
+that references a release says `0.1.0` — the bundle's `containerImage`, the CI check asserting it,
+four lines of the README. So the bundle would have named an image that does not exist.
+
+Nothing would have caught it. `operator-sdk bundle validate` does not resolve images, and neither
+does the community pipeline; the first symptom would have been a user installing the operator and
+watching the pod fail to pull. It was found only because the Quay build API was read to see what
+the tag had actually produced — the same habit that found the three install-time defects above.
+
+The fix is the cheap direction: the git tag drops the prefix, so `0.1.0` is at once the version in
+`package.json`, the version in `Chart.yaml`, the git tag and the image tag. One string, not two
+that differ by one character. `v0.1.0` is deleted from GitHub and from Quay rather than left as a
+stray alias for the same commit — two tags naming one release is the ambiguity the rule removes.
+
+## Where to pick up — 27 July 2026
+
+All three generations are merged and in step. The OLM bundle landed on `main` (#27) as a merge
+commit, eleven commits, and was merged forward into `release-4.16` (#28) and `release-4.19` (#29).
+`main` is contained in both: zero commits ahead of either.
+
+Two predictions in the previous entry were wrong, and both were wrong in the safe direction.
+`src/components/FileContentModal.tsx` did **not** conflict on `release-4.16` — the PatternFly 5
+markup and the 501 string live far enough apart in the file that git merged them separately. And
+the merge-forward needed no manual work at all: both branches came out at their declared deltas,
+four files on `release-4.19` and nine on `release-4.16`, with `yarn install --immutable` accepting
+the auto-merged lockfile on both.
 
 **Next, in order:**
 
-1. **Open and merge the bundle pull request** into `main`. Base `main`, merge commit — the commits
-   carry distinct decisions and squashing would lose them. CI has to be green on the `bundle` job
-   first: it generates and validates on a clean machine, rather than on one where `helm` and
-   `operator-sdk` were fetched by hand. Then merge `main` forward into both release branches; that
-   one will conflict in `src/components/FileContentModal.tsx`, which is in `release-4.16`'s
-   declared delta because of the PatternFly 5 markup. Keep the branch's markup and take the new
-   string.
-2. **Cut the tags.** `v0.1.0` on `main`, `v0.1.0-ocp4.19` and `v0.1.0-ocp4.16` on the release
-   branches. No tag has ever been cut, and the README's install command already names `...:0.1.0` —
-   a tag that does not exist. A bundle names an immutable image, so this comes before any
-   submission, and the generator's `IfNotPresent`/`Always` choice depends on it too.
-3. **Submit**, one pull request per bundle to `community-operators-prod`, starting with 4.22 alone:
+1. **Cut the tags**: `0.1.0` on `main`, `0.1.0-ocp4.19` and `0.1.0-ocp4.16` on the release
+   branches — no `v`, for the reason in the section above. Check the Quay build API after each one
+   rather than assuming, and confirm the image tag is what the bundle names. A bundle names an
+   immutable image, so this comes before any submission, and the generator's `IfNotPresent`/
+   `Always` choice depends on it too.
+2. **Submit**, one pull request per bundle to `community-operators-prod`, starting with 4.22 alone:
    it is the generation that has been installed end to end, and the community CI is better learned
    on one bundle than on three.
 
