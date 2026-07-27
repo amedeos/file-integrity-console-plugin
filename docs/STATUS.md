@@ -562,12 +562,47 @@ not failed, absent — because Quay builds one image at a time here and drops wh
 Re-pushing that tag alone against an empty queue built it immediately. Push one tag at a time, and
 read the build API rather than believing the push.
 
+## The lab round trip is a script now — 27 July 2026
+
+`hack/lab/` holds what had been a page of `oc` commands run by hand. Two scripts, because there
+are two questions and they are not the same one:
+
+- **`bundle.sh <version>`** — tear down, generate from the chart, build a one-bundle catalogue,
+  install, and then *check*. The install half is the boring half. The checks are the point: the
+  CSV phase, the image and its pull policy, the running image's digest against what Quay says the
+  tag is, that nothing bound to the plugin's ServiceAccount grants a rule, that `console.operator`
+  lists the plugin, that `/healthz` answers. A failed check fails the run.
+- **`console.sh <version> [4.16 4.19]`** — a real console of each generation against that
+  generation's published image, one podman network and one host port each.
+
+`console.sh` cannot answer `bundle.sh`'s question: `BRIDGE_PLUGINS` bypasses the ConsolePlugin
+resource, the CSV, the Subscription and the catalogue. Nor can it exercise file retrieve — the
+proxy alias lives in the ConsolePlugin resource and the backend builds its client from
+`rest.InClusterConfig()`. And `bundle.sh` refuses to install a generation the cluster is not,
+because crossing the `@console/pluginAPI` bound produces a plugin that never executes rather than
+an error anyone would recognise.
+
+Three things the teardown deliberately does not do, all for one reason: the namespace
+`openshift-file-integrity` belongs to the File Integrity Operator as much as to the plugin.
+
+- no `oc delete all`, no label selector, no deleting the namespace;
+- the OperatorGroup is never created blindly. Two in one namespace make both invalid, and one of
+  them would be FIO's;
+- a Helm release of the plugin stops the run rather than being removed, because which installation
+  is wanted is a decision.
+
+The RBAC check is asked twice on purpose: once of the manifests, by following every RoleBinding and
+ClusterRoleBinding that names the ServiceAccount and requiring the roles behind them to be empty,
+and once of the API server, with `oc auth can-i` as that account. The manifests are what we
+control; the API server is what actually decides.
+
 **Next, in order:**
 
-1. **Install the real 4.22 bundle on the lab cluster**, generated with no `BUNDLE_IMAGE` so it
-   names `0.1.0`. Every install so far pointed at `:test`, which means `imagePullPolicy: Always`;
-   with a release tag the generator chooses `IfNotPresent`, and that branch has never run on a
-   cluster. It is also the first time the bundle would pull an image nobody pushed by hand.
+1. **Run `hack/lab/bundle.sh 0.1.0` against the lab cluster.** This is the first install from a
+   release tag: every earlier one pointed at `:test`, which means `imagePullPolicy: Always`, so
+   the `IfNotPresent` branch the generator chooses for an immutable reference has never run on a
+   cluster. Then run it again — it has to be idempotent — and once with `--clean-only`, checking
+   afterwards that FIO is still healthy.
 2. **Submit**, one pull request per bundle to `community-operators-prod`, starting with 4.22 alone:
    it is the generation that has been installed end to end, and the community CI is better learned
    on one bundle than on three.

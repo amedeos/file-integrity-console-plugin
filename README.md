@@ -201,7 +201,7 @@ built for **linux/amd64 only** — on another architecture the pod fails with
 
 | Tag | Built from | Mutable? |
 | --- | --- | --- |
-| `X.Y.Z` | the git tag `vX.Y.Z` | no — this is what an installation should point at, and the default `IfNotPresent` pull policy is correct for it |
+| `X.Y.Z` | the git tag `X.Y.Z` | no — this is what an installation should point at, and the default `IfNotPresent` pull policy is correct for it |
 | `latest` | every push to `main` | yes — needs `plugin.imagePullPolicy=Always`, or the kubelet reuses the cached layer and a rollout reports success while running the previous binary |
 
 **Building your own.** Only the maintainer can push to the repository above, and
@@ -393,6 +393,33 @@ oc login …          # in another shell
 yarn start-console  # console on :9000, pointed at the logged-in cluster
 ```
 
+### Trying a release the way a user gets it
+
+Two scripts under `hack/lab/`, for the two questions a release has to answer.
+Both need `oc` logged in and `podman`; the tools they use beyond that — `helm`,
+`opm`, `operator-sdk` — are downloaded, checksum-verified and cached rather
+than assumed to be installed.
+
+```sh
+hack/lab/bundle.sh 0.1.0              # install from OLM, then check the result
+hack/lab/bundle.sh 0.1.0 --clean-only # remove an installation and stop
+hack/lab/console.sh 0.1.0 4.16 4.19   # a console per generation, ports 9016/9019
+hack/lab/all.sh 0.1.0                 # both, in order
+```
+
+`bundle.sh` tears down any previous installation, generates the bundle from the
+chart, builds a one-bundle catalogue, installs it, and then **checks what it
+produced** — the CSV phase, the image and its pull policy, the running image's
+digest against the tag's, that no Role or ClusterRole bound to the plugin's
+ServiceAccount grants anything, and that `/healthz` answers. Any failed check
+fails the run. It refuses to install a bundle whose generation does not match
+the cluster's, and it deletes only objects it names: the namespace is shared
+with the File Integrity Operator, and a sweep there would take that down too.
+
+`console.sh` answers a different question — whether a generation's build loads
+at all — and cannot answer the first, because it bypasses OLM entirely. See
+[AGENTS.md](AGENTS.md#test-against-another-generation-without-another-cluster).
+
 Translations live in `locales/<lang>/plugin__file-integrity-console-plugin.json`.
 `yarn i18n` regenerates the English catalogue from the sources; the Italian one
 is maintained alongside it and must stay key-for-key aligned — CI fails if the
@@ -492,7 +519,7 @@ semver `0.1.0-ocp4.16` is a *prerelease* of `0.1.0` and sorts before it, so a
 single shared channel would describe an upgrade from the 4.16 build to the 4.22
 one.
 
-**Tag first.** A bundle names an immutable image, so `vX.Y.Z` has to exist and
+**Tag first.** A bundle names an immutable image, so `X.Y.Z` has to exist and
 Quay has to have built it before the bundle is generated for submission.
 
 Then copy `dist/bundle/manifests` and `dist/bundle/metadata` into a fork of

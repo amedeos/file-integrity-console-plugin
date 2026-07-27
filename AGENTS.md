@@ -171,14 +171,24 @@ but it is the cheapest of the three branches, not the hardest.
 
 `quay.io/openshift/origin-console` publishes a tag per release, and a published
 plugin image already serves the assets over plain HTTP. Two containers, no node
-toolchain and no second cluster — `podman` and `oc` are the whole requirement:
+toolchain and no second cluster — `podman` and `oc` are the whole requirement.
 
 ```sh
-podman run -d --rm --name fio-plugin --network=host \
-  quay.io/asalvati/file-integrity-console-plugin:latest \
+hack/lab/console.sh 0.1.0 4.16 4.19
+```
+
+That runs a console per generation on its own port — 9016, 9019, 9022 — each
+with the matching published image, and removes everything on exit. Underneath
+it is two `podman run` calls per generation:
+
+```sh
+podman network create fio-lab-416
+
+podman run -d --name fio-plugin-416 --network fio-lab-416 \
+  quay.io/asalvati/file-integrity-console-plugin:0.1.0-ocp4.16 \
   --listen=:9001 --tls-cert-file= --tls-key-file=
 
-podman run --rm --network=host \
+podman run -d --name fio-console-416 --network fio-lab-416 -p 9016:9000 \
   -e BRIDGE_USER_AUTH=disabled \
   -e BRIDGE_K8S_MODE=off-cluster \
   -e BRIDGE_K8S_AUTH=bearer-token \
@@ -187,15 +197,21 @@ podman run --rm --network=host \
   -e BRIDGE_K8S_AUTH_BEARER_TOKEN="$(oc whoami --show-token)" \
   -e BRIDGE_USER_SETTINGS_LOCATION=localstorage \
   -e BRIDGE_I18N_NAMESPACES=plugin__file-integrity-console-plugin \
-  -e BRIDGE_PLUGINS=file-integrity-console-plugin=http://localhost:9001 \
+  -e BRIDGE_PLUGINS=file-integrity-console-plugin=http://fio-plugin-416:9001 \
   -e BRIDGE_RELEASE_VERSION=4.16.55 \
   quay.io/openshift/origin-console:4.16
 ```
 
-Console on http://localhost:9000; `podman rm -f fio-plugin` afterwards. Change
-the console tag to test another generation, and the plugin image tag to test
-another branch's build — Quay tags by branch, so `release-4.16` is there as soon
-as the branch is pushed.
+A network per generation rather than `--network=host`, so several run at once
+and the console reaches the plugin by container name. The console proxies
+plugin assets server-side, which is why an address only it can resolve works.
+
+**This does not exercise OLM.** `BRIDGE_PLUGINS` bypasses the ConsolePlugin
+resource, the CSV, the Subscription and the catalogue; it answers whether a
+generation's *build* loads. `hack/lab/bundle.sh` answers the other question,
+and only against a cluster of the matching generation. File retrieve cannot
+work here either: the proxy alias is declared in the ConsolePlugin resource,
+and the backend builds its client from `rest.InClusterConfig()`.
 
 Two things this buys that a cluster does not:
 
