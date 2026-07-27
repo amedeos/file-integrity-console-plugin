@@ -61,6 +61,21 @@ jobs:
           fi
           echo "$(git ls-files | wc -l) tracked files, none containing a NUL byte"
 
+      # The lab scripts delete objects on a live cluster, in a namespace shared
+      # with the File Integrity Operator. An unquoted variable there is not a
+      # style problem. shellcheck is preinstalled on the runner.
+      #
+      # start-console.sh is deliberately not in this list. It came from the
+      # plugin template and builds the console's environment by collecting
+      # every BRIDGE_* variable with `set | grep BRIDGE`, which shellcheck reads
+      # as a dozen unused assignments. Silencing that would mean annotating a
+      # file we do not maintain; the scripts that were written here are the ones
+      # this check is for.
+      - name: Shell scripts
+        run: |
+          shellcheck hack/lab/*.sh i18n-scripts/*.sh
+          echo "shellcheck clean"
+
   # A release branch exists to differ from `main` in a handful of files and in
   # nothing else. Left to discipline, that holds until the first backend fix
   # written on the branch instead of merged into it, and from then on there are

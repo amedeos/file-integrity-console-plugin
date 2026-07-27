@@ -67,6 +67,18 @@ file it touches and buries real changes.
   as the namespace's `default` account instead would create no RBAC object at
   all and was rejected for it: `default` is shared, so a rule granted to it
   later for an unrelated reason would be inherited here in silence.
+
+  **Under OLM the account does end up holding exactly one rule, and it is not
+  ours.** Every CSV gets an `OperatorCondition`, and OLM creates a Role — named
+  after the CSV, owned by that condition, labelled `olm.managed` — letting the
+  operator `get`, `update` and `patch` **its own**, restricted by
+  `resourceNames` to that single object. It cannot be declined and it reaches
+  nothing else; this plugin never uses it. Observed on 4.22 by installing and
+  looking, after the check in `hack/lab/bundle.sh` reported it. That check now
+  tolerates that rule *by shape* — widen it, drop the `resourceNames`, or add a
+  second rule, and it fails again. Do not relax it to "OLM-managed Roles are
+  fine": the Role holding whatever the CSV's `permissions` declares carries the
+  same label.
 - **No service-account fallback.** A request without a bearer token is a 401.
   Never let it be served with the plugin's own credentials.
 - **The deny list is checked before the caller is authenticated**, so probing
@@ -171,14 +183,24 @@ but it is the cheapest of the three branches, not the hardest.
 
 `quay.io/openshift/origin-console` publishes a tag per release, and a published
 plugin image already serves the assets over plain HTTP. Two containers, no node
-toolchain and no second cluster — `podman` and `oc` are the whole requirement:
+toolchain and no second cluster — `podman` and `oc` are the whole requirement.
 
 ```sh
-podman run -d --rm --name fio-plugin --network=host \
-  quay.io/asalvati/file-integrity-console-plugin:latest \
+hack/lab/console.sh 0.1.0 4.16 4.19
+```
+
+That runs a console per generation on its own port — 9016, 9019, 9022 — each
+with the matching published image, and removes everything on exit. Underneath
+it is two `podman run` calls per generation:
+
+```sh
+podman network create fio-lab-416
+
+podman run -d --name fio-plugin-416 --network fio-lab-416 \
+  quay.io/asalvati/file-integrity-console-plugin:0.1.0-ocp4.16 \
   --listen=:9001 --tls-cert-file= --tls-key-file=
 
-podman run --rm --network=host \
+podman run -d --name fio-console-416 --network fio-lab-416 -p 9016:9000 \
   -e BRIDGE_USER_AUTH=disabled \
   -e BRIDGE_K8S_MODE=off-cluster \
   -e BRIDGE_K8S_AUTH=bearer-token \
@@ -187,15 +209,21 @@ podman run --rm --network=host \
   -e BRIDGE_K8S_AUTH_BEARER_TOKEN="$(oc whoami --show-token)" \
   -e BRIDGE_USER_SETTINGS_LOCATION=localstorage \
   -e BRIDGE_I18N_NAMESPACES=plugin__file-integrity-console-plugin \
-  -e BRIDGE_PLUGINS=file-integrity-console-plugin=http://localhost:9001 \
+  -e BRIDGE_PLUGINS=file-integrity-console-plugin=http://fio-plugin-416:9001 \
   -e BRIDGE_RELEASE_VERSION=4.16.55 \
   quay.io/openshift/origin-console:4.16
 ```
 
-Console on http://localhost:9000; `podman rm -f fio-plugin` afterwards. Change
-the console tag to test another generation, and the plugin image tag to test
-another branch's build — Quay tags by branch, so `release-4.16` is there as soon
-as the branch is pushed.
+A network per generation rather than `--network=host`, so several run at once
+and the console reaches the plugin by container name. The console proxies
+plugin assets server-side, which is why an address only it can resolve works.
+
+**This does not exercise OLM.** `BRIDGE_PLUGINS` bypasses the ConsolePlugin
+resource, the CSV, the Subscription and the catalogue; it answers whether a
+generation's *build* loads. `hack/lab/bundle.sh` answers the other question,
+and only against a cluster of the matching generation. File retrieve cannot
+work here either: the proxy alias is declared in the ConsolePlugin resource,
+and the backend builds its client from `rest.InClusterConfig()`.
 
 Two things this buys that a cluster does not:
 
@@ -273,6 +301,21 @@ Two things this buys that a cluster does not:
   than the one in the lockfile — a component missing there fails at runtime, in
   the browser, with CI green. Check this against the real console image before
   designing around any particular PatternFly API.
+- **What console 4.16 shares is PatternFly 4, and the table above is about the
+  stylesheet.** Its `index.html` loads two PatternFly bundles, and the shared
+  scope registers `@patternfly/react-core` out of the one named
+  `vendor-patternfly-4-shared`: version **4.278.0**, with `react-table` 4.113.6
+  beside it. The PatternFly 5 bundle is what the console renders *itself* with.
+  So a plugin compiled against 5.2 is *offered* 4.278.0 at runtime. Read off a
+  running console with `curl`, not inferred.
+
+  **Offered is not used.** The plugin's own entry provides `react-core` 5.2.3
+  and consumes it at `^5.2.3`; a singleton share would then have made the
+  console's copy win anyway and logged `Unsatisfied version … of shared
+  singleton module` in the browser. Reloading a 4.16 console with devtools open
+  and filtering on `patternfly` produced nothing, so the plugin renders with its
+  own copy and this is background, not a live hazard. It stops being background
+  the moment anything relies on a component the plugin does not bundle.
 - **The PatternFly floor can be two different numbers.** "Pin to the floor" is
   one rule but not one version: console 4.19 declares `@patternfly/patternfly`
   at `^6.2.3` and `react-core`, `react-icons` and `react-table` at `^6.2.2`,
