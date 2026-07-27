@@ -107,9 +107,14 @@ spec:
     name: Amedeo Salvati
     url: https://github.com/amedeos/file-integrity-console-plugin
 
+  # A forwarding alias rather than a personal address. This field is published
+  # in a public catalogue and shown in OperatorHub, so it is indexed and cannot
+  # be withdrawn from where it has already been copied. It still has to be an
+  # address someone reads: it is where a user or a reviewer writes when
+  # something breaks, possibly years from now.
   maintainers:
     - name: Amedeo Salvati
-      email: amedeo@linux.com
+      email: cops.capable425@passmail.net
 
   links:
     - name: Source

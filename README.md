@@ -524,6 +524,14 @@ one.
 **Tag first.** A bundle names an immutable image, so `X.Y.Z` has to exist and
 Quay has to have built it before the bundle is generated for submission.
 
+What the tag pins is the **image**, not the bundle. The bundle is generated
+when it is submitted, and is not byte-identical to what checking out the tag
+would produce — `createdAt` alone differs on every run, and metadata a chart has
+no opinion about, such as the maintainer address, can be corrected after a tag
+without reissuing it. The submitted bundle's own provenance is the pull request
+in `community-operators-prod`, which is a permanent public record of exactly
+what was published. Reissue the tag only when the *image* has to change.
+
 Then copy `dist/bundle/manifests` and `dist/bundle/metadata` into a fork of
 [`community-operators-prod`][cop] at
 `operators/file-integrity-console-plugin/<version>/` and open a pull request
