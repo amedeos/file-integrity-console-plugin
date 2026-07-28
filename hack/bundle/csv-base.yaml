@@ -72,11 +72,20 @@ spec:
 
     ## How it talks to the cluster
 
-    The plugin's own ServiceAccount has **no Role and no ClusterRole**.
-    Everything the backend does against the API server it does with the calling
-    user's token, resolving the caller with `SelfSubjectReview` and checking
-    rights with `SelfSubjectAccessReview`. A request arriving without a bearer
-    token is rejected; it is never served with the plugin's own credentials.
+    **The request-serving path has no authority of its own.** Everything the
+    backend does against the API server on behalf of a browsing user it does
+    with that user's token, resolving the caller with `SelfSubjectReview` and
+    checking rights with `SelfSubjectAccessReview`. A request arriving without a
+    bearer token is rejected; it is never served with the plugin's own
+    credentials.
+
+    Its ServiceAccount holds **no namespaced rule at all**. Cluster-wide it
+    holds **two, and they are about installing rather than about data**: it may
+    create a `ConsolePlugin`, and it may read and update the one named after
+    itself. That is how the plugin registers with the console, which it does at
+    startup rather than through a shipped manifest — an OLM bundle cannot state
+    the namespace it will be installed into, so the pod reads its own and fills
+    it in. Neither rule reaches anything belonging to anyone.
 
     ## Reading files from nodes
 
@@ -97,10 +106,11 @@ spec:
     * **Install the [File Integrity Operator][fio] first.** This plugin displays
       what that operator produces and scans nothing itself. On a cluster with no
       `FileIntegrity` CRD the navigation entry stays hidden.
-    * **Install into `openshift-file-integrity`.** The `ConsolePlugin` names that
-      namespace literally, so the console cannot reach the plugin's backend from
-      anywhere else. The install form suggests it by default; overriding it
-      produces a plugin that fails to load rather than an error at install time.
+    * **`openshift-file-integrity` is suggested, not required.** The install
+      form offers it by default and it is the tidy place for this to live,
+      beside the operator it displays. Another namespace works: the plugin reads
+      the namespace it was installed into and registers itself with the console
+      accordingly.
     * **Enable the plugin when the form asks.** OperatorHub defaults the *Console
       plugin* choice to **Disabled** for any catalogue it does not trust, which
       includes the community one. Left that way, the operator runs and no menu
