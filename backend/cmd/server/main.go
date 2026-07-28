@@ -117,6 +117,14 @@ func envInt64(flagName string, fallback int64) int64 {
 }
 
 func main() {
+	// One binary, two jobs. Anything that is not a known subcommand falls
+	// through to the server, so every argument the container already passes
+	// keeps working and a bare run still starts the plugin.
+	if len(os.Args) > 1 && os.Args[1] == ensureConsolePluginCmd {
+		ensureConsolePlugin(os.Args[2:])
+		return
+	}
+
 	var cfg config
 	flag.StringVar(&cfg.listen, "listen", envString("listen", ":9443"), "address to listen on")
 	flag.StringVar(&cfg.certFile, "tls-cert-file", envString("tls-cert-file", "/var/cert/tls.crt"), "TLS certificate; serve plain HTTP if empty")

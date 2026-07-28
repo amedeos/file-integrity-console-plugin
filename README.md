@@ -129,9 +129,11 @@ that the plugin never lends its own authority to a caller:
   `ConsolePlugin` proxy is declared with `authorization: UserToken`. Every API
   call the backend makes uses that token. A request without one is rejected with
   401 — there is no service-account fallback.
-- The backend's ServiceAccount has **no Role or ClusterRole bound to it**. It
+- The backend's ServiceAccount has **no rule that reaches any data**. It
   resolves the caller with `SelfSubjectReview` and checks `pods/exec` with
-  `SelfSubjectAccessReview`, both of which run as the user.
+  `SelfSubjectAccessReview`, both of which run as the user. On the Helm path it
+  is bound to nothing at all; on the OLM path it may write one object, its own
+  `ConsolePlugin`, which is how the plugin registers itself with the console.
 - A **deny list** blocks paths that would turn "can exec in the file-integrity
   namespace" into "can read every key on a control-plane node":
   `/etc/kubernetes/static-pod-resources/**`, `**/*.key`, `**/*.pem`,
@@ -241,24 +243,31 @@ oc patch consoles.operator.openshift.io cluster --type=json \
 ```
 
 **Install it into `openshift-file-integrity`**, which the form pre-selects as
-*Operator recommended Namespace*. The `ConsolePlugin` the bundle ships names
-that namespace literally — OLM fills nothing in inside a cluster-scoped
-manifest — so installing elsewhere leaves the console unable to fetch the
-plugin's assets. That failure is at least visible: the plugin is listed as
-failed under **Administration → Cluster Settings → Console plugins**.
+*Operator recommended Namespace*. It is where the File Integrity Operator runs,
+and the plugin belongs beside the operator whose results it reads. The bundle
+offers only the single-namespace install mode, which is why the form defaults
+this way; a global install would put the pod in `openshift-operators` instead.
 
-The bundle offers only the single-namespace install mode, and that is why the
-form defaults the way it does. It is also the only mode that works: a global
-install would put the pod in `openshift-operators`, which is not the namespace
-the ConsolePlugin names. `openshift-file-integrity` is where the File Integrity
-Operator runs, and the plugin belongs beside the operator it reads.
+**The bundle ships no `ConsolePlugin`.** An init container creates it when the
+pod starts, reading its own namespace through the downward API. Two reasons,
+and the second is the better one: `operator-sdk bundle validate` rejects the
+kind as a bundle manifest in every release up to 1.39.2, which is what the
+community pipeline runs — and OLM templates nothing inside a cluster-scoped
+manifest, so a shipped `ConsolePlugin` had to name its Service's namespace
+literally and an install anywhere else produced a plugin the console could not
+reach.
 
-The bundle grants its ServiceAccount nothing, exactly as the chart does — the
-CSV declares one permissions entry with an empty rule list and no cluster
-permissions. OLM turns that into the account, plus a Role and a RoleBinding
-carrying no rules, so unlike the chart install you will see two RBAC objects
-here. They permit nothing; the backend acts only as the user browsing the
-console.
+The ServiceAccount is granted **no namespaced rule**, exactly as on the Helm
+path, and cluster-wide exactly two: `create` a `ConsolePlugin`, and
+`get`/`update`/`patch` the one named after this plugin. That is how it
+registers itself and it is all it can do — `resourceNames` narrows every verb
+that can be narrowed, and there is no `delete`, `list` or `watch`. Nothing
+there reaches data belonging to anyone: every API-server call made for a
+browsing user still uses that user's token.
+
+OLM also materialises the empty `permissions` entry as a Role and a
+RoleBinding carrying no rules, so unlike a chart install you will see those two
+objects sitting there permitting nothing.
 
 The console restarts itself once the plugin is enabled, so the manifest-cache
 problem described under [Upgrading to a new build](#upgrading-to-a-new-build)
@@ -365,6 +374,7 @@ rollout reports success while running the previous binary.
 | `plugin.image` | *(required)* | Image built from this repository. |
 | `plugin.replicas` | `2` | |
 | `plugin.name` | chart name | ConsolePlugin name. It is baked into the frontend's proxy URL (`PLUGIN_NAME` in `src/constants.ts`); changing one without the other breaks file retrieve. |
+| `plugin.consolePlugin.mode` | `manifest` | How the `ConsolePlugin` is created. `manifest`: the chart creates it, and nothing is granted any RBAC. `initContainer`: created at startup from the pod's own namespace, which needs two rules on `consoleplugins`. The bundle uses the latter. |
 | `backend.fileIntegrityNamespace` | `openshift-file-integrity` | Where the operator runs its scans. |
 | `backend.features.fileRetrieve` | `true` | Reading files from nodes. Set to `false` to make the endpoint answer 501 and skip building a Kubernetes client at all; it grants nothing on its own, since every read runs as the calling user. |
 | `backend.maxFileBytes` | `1048576` | Bytes returned before the response is flagged truncated. |
@@ -523,6 +533,14 @@ one.
 
 **Tag first.** A bundle names an immutable image, so `X.Y.Z` has to exist and
 Quay has to have built it before the bundle is generated for submission.
+
+What the tag pins is the **image**, not the bundle. The bundle is generated
+when it is submitted, and is not byte-identical to what checking out the tag
+would produce — `createdAt` alone differs on every run, and metadata a chart has
+no opinion about, such as the maintainer address, can be corrected after a tag
+without reissuing it. The submitted bundle's own provenance is the pull request
+in `community-operators-prod`, which is a permanent public record of exactly
+what was published. Reissue the tag only when the *image* has to change.
 
 Then copy `dist/bundle/manifests` and `dist/bundle/metadata` into a fork of
 [`community-operators-prod`][cop] at

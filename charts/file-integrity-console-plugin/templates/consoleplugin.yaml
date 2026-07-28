@@ -1,35 +1,13 @@
-apiVersion: console.openshift.io/v1
-kind: ConsolePlugin
-metadata:
-  name: {{ template "file-integrity-console-plugin.name" . }}
-  labels:
-    {{- include "file-integrity-console-plugin.labels" . | nindent 4 }}
-spec:
-  displayName: {{ default (printf "%s Plugin" (include "file-integrity-console-plugin.name" .)) .Values.plugin.description }}
-  i18n:
-    loadType: Preload
-  backend:
-    type: Service
-    service:
-      name: {{ template "file-integrity-console-plugin.name" . }}
-      namespace: {{ .Release.Namespace }}
-      port: {{ .Values.plugin.port }}
-      basePath: {{ .Values.plugin.basePath }}
-  proxy:
-    # authorization: UserToken makes the console forward the logged-in user's
-    # token to us. Without it the backend would see no credentials and reject
-    # every request — by design, it never falls back to its own identity.
-    #
-    # Declared even when backend.features.fileRetrieve is off. The switch that
-    # matters is --enable-file-retrieve on the backend, which answers 501 and
-    # asks for no cluster credentials at all; dropping the proxy instead would
-    # make the console answer 404, which the UI can only report as "no scan pod
-    # found on this node" — the wrong reason.
-    - alias: fio-backend
-      authorization: UserToken
-      endpoint:
-        type: Service
-        service:
-          name: {{ template "file-integrity-console-plugin.name" . }}
-          namespace: {{ .Release.Namespace }}
-          port: {{ .Values.plugin.port }}
+{{- /*
+Shipped as a manifest only when the pod does not write it itself.
+
+Switching an existing release from manifest to initContainer is not an upgrade
+this chart handles: the template renders empty, so Helm deletes the object as
+one dropped from the release, and it does that without waiting for the new pods
+— whose init containers may already have applied it. The deletion then wins and
+nothing recreates the object until a pod restarts, while `helm upgrade` reports
+success. Uninstall and install again, or roll the pods afterwards.
+*/}}
+{{- if not (include "file-integrity-console-plugin.selfRegisters" .) }}
+{{- include "file-integrity-console-plugin.consolePluginObject" . }}
+{{- end }}

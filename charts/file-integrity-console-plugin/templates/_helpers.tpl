@@ -30,6 +30,23 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
 {{/*
+Labels for an object this chart describes but does not create.
+
+The ConsolePlugin in initContainer mode is written by the pod at startup, so
+`managed-by: Helm` would be a false statement and `helm.sh/chart` names a chart
+that is not what installed it — under OLM there is no chart at all. Both are
+also the labels the bundle generator strips from every object it ships, and it
+cannot reach this one: it travels as an opaque string inside a ConfigMap.
+Getting it right at the source is what keeps those two agreeing.
+*/}}
+{{- define "file-integrity-console-plugin.selfWrittenLabels" -}}
+{{ include "file-integrity-console-plugin.selectorLabels" . }}
+{{- if .Chart.AppVersion }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
+{{- end }}
+
+{{/*
 Selector labels
 */}}
 {{- define "file-integrity-console-plugin.selectorLabels" -}}
@@ -69,6 +86,71 @@ Whether a policy ConfigMap is needed at all
 */}}
 {{- define "file-integrity-console-plugin.hasPolicyConfigMap" -}}
 {{- if or .Values.backend.denyList .Values.backend.extraDenyList }}true{{- end }}
+{{- end }}
+
+{{/*
+The ConsolePlugin object, in one place.
+
+Rendered either as a manifest of its own or as the body of a ConfigMap the
+init container applies, and defined here so those two never drift. The
+namespace written here is the one `helm template` was pointed at; in
+initContainer mode it is replaced at startup by the pod's own, read through the
+downward API, because OLM fills nothing in inside a cluster-scoped manifest.
+*/}}
+{{- define "file-integrity-console-plugin.consolePluginObject" -}}
+apiVersion: console.openshift.io/v1
+kind: ConsolePlugin
+metadata:
+  name: {{ template "file-integrity-console-plugin.name" . }}
+  labels:
+    {{- if include "file-integrity-console-plugin.selfRegisters" . }}
+    {{- include "file-integrity-console-plugin.selfWrittenLabels" . | nindent 4 }}
+    {{- else }}
+    {{- include "file-integrity-console-plugin.labels" . | nindent 4 }}
+    {{- end }}
+spec:
+  displayName: {{ default (printf "%s Plugin" (include "file-integrity-console-plugin.name" .)) .Values.plugin.description }}
+  i18n:
+    loadType: Preload
+  backend:
+    type: Service
+    service:
+      name: {{ template "file-integrity-console-plugin.name" . }}
+      namespace: {{ .Release.Namespace }}
+      port: {{ .Values.plugin.port }}
+      basePath: {{ .Values.plugin.basePath }}
+  proxy:
+    # authorization: UserToken makes the console forward the logged-in user's
+    # token to us. Without it the backend would see no credentials and reject
+    # every request — by design, it never falls back to its own identity.
+    #
+    # Declared even when backend.features.fileRetrieve is off. The switch that
+    # matters is --enable-file-retrieve on the backend, which answers 501 and
+    # asks for no cluster credentials at all; dropping the proxy instead would
+    # make the console answer 404, which the UI can only report as "no scan pod
+    # found on this node" — the wrong reason.
+    - alias: fio-backend
+      authorization: UserToken
+      endpoint:
+        type: Service
+        service:
+          name: {{ template "file-integrity-console-plugin.name" . }}
+          namespace: {{ .Release.Namespace }}
+          port: {{ .Values.plugin.port }}
+{{- end }}
+
+{{/*
+Name of the ConfigMap the init container reads the ConsolePlugin from
+*/}}
+{{- define "file-integrity-console-plugin.consolePluginConfigMap" -}}
+{{- printf "%s-consoleplugin" (include "file-integrity-console-plugin.name" .) }}
+{{- end }}
+
+{{/*
+Whether the ConsolePlugin is created by an init container rather than shipped
+*/}}
+{{- define "file-integrity-console-plugin.selfRegisters" -}}
+{{- if eq .Values.plugin.consolePlugin.mode "initContainer" }}true{{- end }}
 {{- end }}
 
 {{/*

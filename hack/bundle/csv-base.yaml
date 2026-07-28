@@ -72,11 +72,20 @@ spec:
 
     ## How it talks to the cluster
 
-    The plugin's own ServiceAccount has **no Role and no ClusterRole**.
-    Everything the backend does against the API server it does with the calling
-    user's token, resolving the caller with `SelfSubjectReview` and checking
-    rights with `SelfSubjectAccessReview`. A request arriving without a bearer
-    token is rejected; it is never served with the plugin's own credentials.
+    **The request-serving path has no authority of its own.** Everything the
+    backend does against the API server on behalf of a browsing user it does
+    with that user's token, resolving the caller with `SelfSubjectReview` and
+    checking rights with `SelfSubjectAccessReview`. A request arriving without a
+    bearer token is rejected; it is never served with the plugin's own
+    credentials.
+
+    Its ServiceAccount holds **no namespaced rule at all**. Cluster-wide it
+    holds **two, and they are about installing rather than about data**: it may
+    create a `ConsolePlugin`, and it may read and update the one named after
+    itself. That is how the plugin registers with the console, which it does at
+    startup rather than through a shipped manifest — an OLM bundle cannot state
+    the namespace it will be installed into, so the pod reads its own and fills
+    it in. Neither rule reaches anything belonging to anyone.
 
     ## Reading files from nodes
 
@@ -91,6 +100,30 @@ spec:
     It can be switched off, and then the endpoint answers `501` and the backend
     builds no Kubernetes client at all. Set `PLUGIN_ENABLE_FILE_RETRIEVE` to
     `false` through the Subscription to do that.
+
+    ## Before you install
+
+    * **Install the [File Integrity Operator][fio] first.** This plugin displays
+      what that operator produces and scans nothing itself. On a cluster with no
+      `FileIntegrity` CRD the navigation entry stays hidden.
+    * **`openshift-file-integrity` is suggested, not required.** The install
+      form offers it by default and it is the tidy place for this to live,
+      beside the operator it displays. Another namespace works: the plugin reads
+      the namespace it was installed into and registers itself with the console
+      accordingly.
+    * **Enable the plugin when the form asks.** OperatorHub defaults the *Console
+      plugin* choice to **Disabled** for any catalogue it does not trust, which
+      includes the community one. Left that way, the operator runs and no menu
+      entry appears. To enable it after the fact:
+
+      ```
+      oc patch console.operator.openshift.io cluster --type=json \
+        -p '[{"op":"add","path":"/spec/plugins/-","value":"file-integrity-console-plugin"}]'
+      ```
+
+    Uninstalling leaves the cluster-scoped `ConsolePlugin` behind, because a
+    bundle cannot ship the Job that would remove it. Delete it by hand:
+    `oc delete consoleplugin file-integrity-console-plugin`.
 
     [fio]: https://github.com/openshift/file-integrity-operator
 
@@ -107,13 +140,20 @@ spec:
     name: Amedeo Salvati
     url: https://github.com/amedeos/file-integrity-console-plugin
 
+  # A forwarding alias rather than a personal address. This field is published
+  # in a public catalogue and shown in OperatorHub, so it is indexed and cannot
+  # be withdrawn from where it has already been copied. It still has to be an
+  # address someone reads: it is where a user or a reviewer writes when
+  # something breaks, possibly years from now.
   maintainers:
     - name: Amedeo Salvati
-      email: amedeo@linux.com
+      email: cops.capable425@passmail.net
 
   links:
     - name: Source
       url: https://github.com/amedeos/file-integrity-console-plugin
+    - name: Documentation
+      url: https://github.com/amedeos/file-integrity-console-plugin#readme
     - name: File Integrity Operator
       url: https://github.com/openshift/file-integrity-operator
 

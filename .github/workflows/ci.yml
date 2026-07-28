@@ -458,22 +458,57 @@ jobs:
             # renders a variable the binary reads nothing from, and the
             # installation runs the default while appearing configured.
             flag=$(echo "${name#PLUGIN_}" | tr 'A-Z_' 'a-z-')
-            grep -q "\"$flag\"" backend/cmd/server/main.go || {
+            grep -qr "\"$flag\"" backend/cmd/server/ || {
               echo "$name maps to --$flag, which the binary does not define"
               exit 1
             }
           done
 
-      # The backend's ServiceAccount is deliberately bound to no role at all;
-      # everything it does runs as the calling user. A rule appearing here is a
+      # The backend's ServiceAccount holds no authority over anything a browsing
+      # user could reach: every API-server call on a user's behalf is made with
+      # that user's token. A rule appearing where there should be none is a
       # design change, not a tweak, so make CI say so out loud.
+      #
+      # Both modes are checked, because they are two different promises. In
+      # `manifest` — what a Helm install gets — the promise is still that
+      # nothing is granted at all. In `initContainer`, the plugin has to write
+      # its own ConsolePlugin, and the promise is that this is *all* it can do.
       - name: No RBAC for the plugin ServiceAccount
         run: |
-          helm template ci charts/file-integrity-console-plugin \
-            --namespace openshift-file-integrity \
-            --set plugin.image=example.io/plugin:ci \
-            --set plugin.jobs.patchConsoles.enabled=false > /tmp/norbac.yaml
-          ! grep -qE '^kind: (Cluster)?Role(Binding)?$' /tmp/norbac.yaml
+          render() {
+            helm template ci charts/file-integrity-console-plugin \
+              --namespace openshift-file-integrity \
+              --set plugin.image=example.io/plugin:ci \
+              --set plugin.jobs.patchConsoles.enabled=false "$@"
+          }
+
+          render > /tmp/norbac.yaml
+          if grep -qE '^kind: (Cluster)?Role(Binding)?$' /tmp/norbac.yaml; then
+            echo "manifest mode renders RBAC; a Helm install must need none"
+            exit 1
+          fi
+          echo "manifest mode: no Role, no ClusterRole, no bindings"
+
+          # In initContainer mode: exactly one ClusterRole and one binding, and
+          # still no namespaced Role at all. *What* the ClusterRole grants is
+          # asserted in the `bundle` job, which has a YAML parser — and asserted
+          # there on the CSV, which is this same ClusterRole after the generator
+          # has lifted it, so checking it twice here would check one thing.
+          render --set plugin.consolePlugin.mode=initContainer > /tmp/selfreg.yaml
+          for kind in Role RoleBinding; do
+            if grep -qE "^kind: $kind\$" /tmp/selfreg.yaml; then
+              echo "initContainer mode renders a namespaced $kind; it must render none"
+              exit 1
+            fi
+          done
+          for kind in ClusterRole ClusterRoleBinding; do
+            n=$(grep -cE "^kind: $kind\$" /tmp/selfreg.yaml || true)
+            if [ "$n" != 1 ]; then
+              echo "initContainer mode renders $n ${kind}s; expected exactly one"
+              exit 1
+            fi
+          done
+          echo "initContainer mode: one ClusterRole, one binding, no namespaced role"
 
   # The OLM bundle is generated from the chart rather than written beside it,
   # so there is only one description of what an installation creates. This job
@@ -579,22 +614,55 @@ jobs:
             '["file-integrity-console-plugin"]',
           );
 
-          // OLM templates nothing inside a cluster-scoped manifest, so this
-          // namespace is literal in the shipped bundle. If it ever stops
-          // agreeing with the suggested namespace, the console cannot reach the
-          // plugin's backend and the failure is a blank page.
-          const plugin = read(
-            `${dir}/file-integrity-console-plugin_console.openshift.io_v1_consoleplugin.yaml`,
-          );
+          // The ConsolePlugin travels as data now, so it is read out of the
+          // ConfigMap the init container mounts. Found by shape rather than by
+          // filename: the generator asserts the same thing the same way, and a
+          // renamed file should not be able to turn this check green by making
+          // it read nothing.
+          const configMap = fs
+            .readdirSync(dir)
+            .map((f) => read(`${dir}/${f}`))
+            .find((o) => o.kind === 'ConfigMap' && o.data?.['consoleplugin.yaml']);
+          if (!configMap) {
+            fail.push('no ConfigMap carrying consoleplugin.yaml; nothing would register the plugin');
+          }
+          const plugin = configMap && yaml.load(configMap.data['consoleplugin.yaml']);
+
+          // The name is the whole coupling: the frontend builds its proxy URL
+          // from PLUGIN_NAME, the console looks the plugin up by the name in
+          // this annotation, and the object the init container creates has to
+          // be the one both of them mean. Changing one without the others
+          // breaks file retrieve with no visible error.
           check(
-            'consoleplugin namespace',
-            plugin.spec.backend.service.namespace,
-            'openshift-file-integrity',
+            'consoleplugin name',
+            plugin && `["${plugin.metadata.name}"]`,
+            csv.metadata.annotations['console.openshift.io/plugins'],
           );
+
+          // The namespace in that ConfigMap is whatever the chart was rendered
+          // with, and it is *not* what ends up on the cluster: the init
+          // container overwrites it with the pod's own, read through the
+          // downward API. That substitution is the entire reason this release
+          // exists — without it the bundle would again name a namespace it
+          // cannot know, and an install anywhere else is a blank page.
+          const initContainers =
+            csv.spec.install.spec.deployments[0].spec.template.spec.initContainers ?? [];
+          const register = initContainers.find((c) => c.args?.includes('ensure-consoleplugin'));
+          check('init container', Boolean(register), true);
+          check(
+            'namespace from the downward API',
+            register?.env?.find((e) => e.name === 'PLUGIN_POD_NAMESPACE')?.valueFrom?.fieldRef
+              ?.fieldPath,
+            'metadata.namespace',
+          );
+
+          // Still declared, because it is what the console offers at install
+          // time and what the README tells people to accept. It no longer has
+          // to agree with anything inside the plugin — that is the point.
           check(
             'suggested namespace',
             csv.metadata.annotations['operatorframework.io/suggested-namespace'],
-            plugin.spec.backend.service.namespace,
+            'openshift-file-integrity',
           );
 
           if (fail.length) {
@@ -627,19 +695,50 @@ jobs:
           );
           const { permissions = [], clusterPermissions = [] } = csv.spec.install.spec;
 
+          // The cluster rules, written out in full rather than pattern-matched.
+          // They let the plugin register itself with the console and do nothing
+          // else — `resourceNames` narrows every verb that can be narrowed, and
+          // `create` is the one that cannot, because the object has no name yet
+          // when the request is admitted. A looser check would pass just as
+          // happily on a rule added underneath.
+          const wantCluster = [
+            {
+              apiGroups: ['console.openshift.io'],
+              resources: ['consoleplugins'],
+              verbs: ['create'],
+            },
+            {
+              apiGroups: ['console.openshift.io'],
+              resources: ['consoleplugins'],
+              resourceNames: ['file-integrity-console-plugin'],
+              verbs: ['get', 'update', 'patch'],
+            },
+          ];
+
           const fail = [];
-          if (clusterPermissions.length) {
-            fail.push('the CSV declares clusterPermissions; it must declare none');
-          }
           if (permissions.length !== 1) {
             fail.push(`${permissions.length} permissions entries; expected exactly one`);
           }
           for (const p of permissions) {
             if ((p.rules ?? []).length) {
               fail.push(
-                `${p.serviceAccountName} is granted ${p.rules.length} rule(s); it must be granted none. ` +
-                  'Everything the backend does against the API server runs as the calling user, so a ' +
-                  "rule here means something has started using the pod's identity instead.",
+                `${p.serviceAccountName} is granted ${p.rules.length} namespaced rule(s); it must be ` +
+                  'granted none. Every API-server call made on behalf of a browsing user runs as that ' +
+                  "user, so a rule here means something has started using the pod's identity instead.",
+              );
+            }
+          }
+          if (clusterPermissions.length !== 1) {
+            fail.push(
+              `${clusterPermissions.length} clusterPermissions entries; expected exactly one, ` +
+                'holding the rules that let the plugin create its own ConsolePlugin',
+            );
+          }
+          for (const p of clusterPermissions) {
+            if (JSON.stringify(p.rules) !== JSON.stringify(wantCluster)) {
+              fail.push(
+                `${p.serviceAccountName} holds cluster rules other than writing its own ConsolePlugin:\n` +
+                  JSON.stringify(p.rules, null, 2),
               );
             }
           }
@@ -648,10 +747,28 @@ jobs:
             process.exit(1);
           }
           console.log(
-            `${permissions[0].serviceAccountName}: no rules, no clusterPermissions`,
+            `${permissions[0].serviceAccountName}: no namespaced rules, and cluster-wide only its own ConsolePlugin`,
           );
           EOF
           ! grep -rqE '^kind: (Cluster)?Role(Binding)?$' dist/bundle/manifests/
+
+      # The kind this whole design exists to avoid shipping. `operator-sdk
+      # bundle validate` rejects it as a bundle manifest in every release up to
+      # 1.39.2 — "unsupported media type registry+v1 for bundle object" — and
+      # the community pipeline runs one of those, so a ConsolePlugin reappearing
+      # here would fail at submission and nowhere earlier.
+      - name: The bundle ships no ConsolePlugin
+        run: |
+          if grep -rqE '^kind: ConsolePlugin$' dist/bundle/manifests/; then
+            echo "a ConsolePlugin manifest is in the bundle; it must be created at"
+            echo "runtime by the init container instead"
+            exit 1
+          fi
+          grep -rq 'consoleplugin.yaml' dist/bundle/manifests/ || {
+            echo "no ConfigMap carrying the ConsolePlugin; nothing would register the plugin"
+            exit 1
+          }
+          echo "no ConsolePlugin manifest, and the ConfigMap the init container reads is present"
 
   image:
     name: Container image

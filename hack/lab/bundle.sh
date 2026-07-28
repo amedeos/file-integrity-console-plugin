@@ -194,6 +194,21 @@ leftovers() {
     out="$out subscription"
   oc get serviceaccount "$PLUGIN_NAME" -n "$NAMESPACE" >/dev/null 2>&1 &&
     out="$out serviceaccount"
+  # Cluster-scoped, and owned by a namespaced CSV — an ownerReference Kubernetes
+  # garbage collection will not follow, so removing these is OLM's own collector
+  # and nothing else. The one leak this script could not see is the one the
+  # self-registering plugin introduced.
+  #
+  # Found by who they name rather than by how OLM labels them: a binding that
+  # still grants to this ServiceAccount is a leak whatever it is called, and
+  # that reading cannot go stale the way a label spelling can. The ClusterRole
+  # is matched by owner, which is the weaker of the two — a role surviving
+  # without its binding grants nobody anything.
+  oc get clusterrolebinding -o jsonpath='{range .items[*]}{range .subjects[*]}{.kind}/{.namespace}/{.name}{"\n"}{end}{end}' 2>/dev/null |
+    grep -q "^ServiceAccount/${NAMESPACE}/${PLUGIN_NAME}$" &&
+    out="$out clusterrolebinding"
+  oc get clusterrole -o jsonpath='{range .items[*]}{.metadata.labels.olm\.owner}{"\n"}{end}' 2>/dev/null |
+    grep -q "^${PLUGIN_NAME}\." && out="$out clusterrole"
   oc get csv -n "$NAMESPACE" \
     -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null |
     grep -q "^${PLUGIN_NAME}\." && out="$out csv"
@@ -463,52 +478,69 @@ bound_roles() {
     ' "$NAMESPACE" "$SA"
 }
 
-# OLM grants one rule of its own, whatever the bundle declares: every CSV gets
-# an OperatorCondition, and the operator is allowed to update its own. Observed
-# on 4.22 — a Role named after the CSV, owned by the OperatorCondition and
-# labelled olm.managed, restricted by resourceNames to that one object. It is
-# not a way to reach anything else and cannot be declined, so it is tolerated
-# by shape rather than by name: widen it, or add a second rule, and this fails.
+# Exactly two things may be granted, and both are tolerated by *shape* rather
+# than by the name or the label of the role carrying them. Widen either, or add
+# a third, and this fails.
 #
-# `rules` reads back as the string "null" on a Role with none, which is neither
-# empty nor "[]" — the first version of this check called that a violation and
+#   1. Writing this plugin's own ConsolePlugin. That is ours, declared in the
+#      CSV's clusterPermissions, and is how the plugin registers itself with
+#      the console now that a bundle cannot ship the object.
+#   2. Updating its own OperatorCondition. That one is OLM's and cannot be
+#      declined: every CSV gets a condition and the operator is allowed to
+#      report through it. Observed on 4.22, restricted by resourceNames to that
+#      single object.
+#
+# Tolerating anything labelled olm.managed would have been easier and blind:
+# the Role carrying whatever the CSV's permissions declare wears that label too.
+#
+# `rules` reads back as the string "null" on a role with none, which is neither
+# empty nor "[]" — an earlier version of this check called that a violation and
 # reported our own empty Role as a grant.
 # shellcheck disable=SC2016
-rules_beyond_own_condition() {
+rules_beyond_the_allowed() {
   node -e '
-    const csv = process.argv[1];
+    const [csv, plugin] = process.argv.slice(1);
     let raw = "";
     process.stdin.on("data", (d) => (raw += d));
     process.stdin.on("end", () => {
       const text = raw.trim();
       const rules = !text || text === "null" ? [] : JSON.parse(text);
-      const isOwnCondition = (r) =>
-        (r.apiGroups || []).join() === "operators.coreos.com" &&
-        (r.resources || []).join() === "operatorconditions" &&
-        (r.resourceNames || []).join() === csv;
-      const bad = rules.filter((r) => !isOwnCondition(r));
+      const g = (r, k) => (r[k] || []).join();
+      const allowed = [
+        (r) =>
+          g(r, "apiGroups") === "operators.coreos.com" &&
+          g(r, "resources") === "operatorconditions" &&
+          g(r, "resourceNames") === csv,
+        (r) =>
+          g(r, "apiGroups") === "console.openshift.io" &&
+          g(r, "resources") === "consoleplugins" &&
+          g(r, "verbs") === "create",
+        (r) =>
+          g(r, "apiGroups") === "console.openshift.io" &&
+          g(r, "resources") === "consoleplugins" &&
+          g(r, "resourceNames") === plugin &&
+          g(r, "verbs") === "get,update,patch",
+      ];
+      const bad = rules.filter((r) => !allowed.some((ok) => ok(r)));
       if (bad.length) process.stdout.write(JSON.stringify(bad));
     });
-  ' "$1"
+  ' "$1" "$2"
 }
 
 GRANTED=""
-CLUSTER_ROLES=0
 while read -r kind scope name; do
   [ -z "$kind" ] && continue
   if [ "$kind" = ClusterRole ]; then
-    CLUSTER_ROLES=$((CLUSTER_ROLES + 1))
     rules=$(oc get clusterrole "$name" -o jsonpath='{.rules}' 2>/dev/null)
   else
     rules=$(oc get role "$name" -n "$scope" -o jsonpath='{.rules}' 2>/dev/null)
   fi
-  if [ -n "$(printf '%s' "$rules" | rules_beyond_own_condition "$CSV_NAME")" ]; then
+  if [ -n "$(printf '%s' "$rules" | rules_beyond_the_allowed "$CSV_NAME" "$PLUGIN_NAME")" ]; then
     GRANTED="$GRANTED $kind/$name"
   fi
 done < <(bound_roles)
 
-check "no ClusterRole is bound to the ServiceAccount" 0 "$CLUSTER_ROLES"
-check "no Role bound to it grants anything but its own OperatorCondition" \
+check "nothing bound to it grants more than registering the plugin" \
   "" "${GRANTED# }"
 
 # And the same question asked of the API server rather than of the manifests,
@@ -521,6 +553,18 @@ for verb_res in "get:secrets" "create:pods/exec" "list:pods"; do
   check "SA cannot $verb $res" no \
     "$(oc auth can-i "$verb" "$res" \
       --as="system:serviceaccount:$NAMESPACE:$SA" -n "$NAMESPACE" 2>/dev/null || true)"
+done
+
+# The narrowing, asked of the API server too. It can make a ConsolePlugin — it
+# has to, that is how the plugin registers — and it must not be able to remove
+# one, nor to enumerate what other operators have registered.
+check "SA can create consoleplugins" yes \
+  "$(oc auth can-i create consoleplugins \
+    --as="system:serviceaccount:$NAMESPACE:$SA" 2>/dev/null || true)"
+for verb in delete list watch; do
+  check "SA cannot $verb consoleplugins" no \
+    "$(oc auth can-i "$verb" consoleplugins \
+      --as="system:serviceaccount:$NAMESPACE:$SA" 2>/dev/null || true)"
 done
 
 # --------------------------------------------------------------------------
