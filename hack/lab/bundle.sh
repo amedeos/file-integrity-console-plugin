@@ -194,6 +194,21 @@ leftovers() {
     out="$out subscription"
   oc get serviceaccount "$PLUGIN_NAME" -n "$NAMESPACE" >/dev/null 2>&1 &&
     out="$out serviceaccount"
+  # Cluster-scoped, and owned by a namespaced CSV — an ownerReference Kubernetes
+  # garbage collection will not follow, so removing these is OLM's own collector
+  # and nothing else. The one leak this script could not see is the one the
+  # self-registering plugin introduced.
+  #
+  # Found by who they name rather than by how OLM labels them: a binding that
+  # still grants to this ServiceAccount is a leak whatever it is called, and
+  # that reading cannot go stale the way a label spelling can. The ClusterRole
+  # is matched by owner, which is the weaker of the two — a role surviving
+  # without its binding grants nobody anything.
+  oc get clusterrolebinding -o jsonpath='{range .items[*]}{range .subjects[*]}{.kind}/{.namespace}/{.name}{"\n"}{end}{end}' 2>/dev/null |
+    grep -q "^ServiceAccount/${NAMESPACE}/${PLUGIN_NAME}$" &&
+    out="$out clusterrolebinding"
+  oc get clusterrole -o jsonpath='{range .items[*]}{.metadata.labels.olm\.owner}{"\n"}{end}' 2>/dev/null |
+    grep -q "^${PLUGIN_NAME}\." && out="$out clusterrole"
   oc get csv -n "$NAMESPACE" \
     -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null |
     grep -q "^${PLUGIN_NAME}\." && out="$out csv"
