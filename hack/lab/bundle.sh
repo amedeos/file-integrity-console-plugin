@@ -243,8 +243,20 @@ else
   skip "the File Integrity Operator is still installed" "not installed here"
 fi
 
-check "exactly one OperatorGroup" 1 \
-  "$(oc get operatorgroup -n "$NAMESPACE" -o name 2>/dev/null | wc -l)"
+# The OperatorGroup in the default namespace is the File Integrity Operator's,
+# shared, and the teardown must leave it exactly as it was. Somewhere the
+# teardown may itself have created it — or that a run under FIO_NAMESPACE has
+# not created yet — the question is only that there are not two.
+if oc get namespace "$NAMESPACE" >/dev/null 2>&1; then
+  og_left=$(oc get operatorgroup -n "$NAMESPACE" -o name 2>/dev/null | wc -l)
+  if [ "$NAMESPACE" = openshift-file-integrity ]; then
+    check "exactly one OperatorGroup" 1 "$og_left"
+  else
+    check "no more than one OperatorGroup" true "$([ "$og_left" -le 1 ] && echo true)"
+  fi
+else
+  skip "exactly one OperatorGroup" "$NAMESPACE does not exist yet"
+fi
 
 if [ "$CLEAN_ONLY" = true ]; then
   log "Clean only — stopping here"
@@ -342,6 +354,16 @@ spec:
 EOF
 
 wait_for "catalogue READY" 180 catalog_ready
+
+# Created rather than required, so that FIO_NAMESPACE can name somewhere that
+# does not exist yet — which is the whole point of installing elsewhere. Never
+# removed again, by this script or any other: tearing down a namespace takes
+# everything in it, and this one is chosen by whoever ran the command. Delete
+# it by hand when the test is over.
+if ! oc get namespace "$NAMESPACE" >/dev/null 2>&1; then
+  info "namespace $NAMESPACE does not exist — creating it (nothing here removes it)"
+  oc create namespace "$NAMESPACE"
+fi
 
 # Two OperatorGroups in one namespace make both invalid, and one of them would
 # be the File Integrity Operator's. Creating one blindly is how an install

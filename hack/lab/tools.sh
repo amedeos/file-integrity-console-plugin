@@ -15,7 +15,16 @@
 # what the chart renders and what src/constants.ts builds its proxy URL from,
 # so they are stated once here rather than typed again in each script.
 PLUGIN_NAME=file-integrity-console-plugin
-NAMESPACE=openshift-file-integrity
+# The one exception, and the reason it is one: from 0.2.0 the plugin reads the
+# namespace it was installed into and registers itself with the console for
+# that namespace, so installing anywhere else is the single verification that
+# the old baked-in namespace is really gone. `FIO_NAMESPACE=fio-elsewhere
+# hack/lab/bundle.sh 0.2.0` is that test — the check on the ConsolePlugin's
+# backend namespace then compares against this, and is the proof.
+#
+# The File Integrity Operator lives in the default one, so a run elsewhere
+# skips the checks that it was left alone: there is nothing there to disturb.
+NAMESPACE=${FIO_NAMESPACE:-openshift-file-integrity}
 IMAGE_REPO=quay.io/asalvati/file-integrity-console-plugin
 CATALOG_SOURCE=fio-plugin-test
 MARKETPLACE_NS=openshift-marketplace
