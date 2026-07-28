@@ -174,9 +174,21 @@ const RENDER_TIME_LABELS = [
   'app.openshift.io/runtime-namespace',
 ];
 
-for (const o of objects) {
-  for (const l of RENDER_TIME_LABELS) delete o.metadata?.labels?.[l];
-}
+// Every `metadata.labels` in the tree, not only the one at the top: the CSV
+// carries the Deployment, and the Deployment carries a pod template with a
+// labels block of its own. Scrubbing only the outer one left every pod OLM
+// creates claiming to be managed by Helm and stamped with a chart version —
+// shipped that way in 0.1.0. The selector is built from `selectorLabels`, which
+// none of these appear in, so removing them changes nothing that matches.
+const scrub = (node) => {
+  if (Array.isArray(node)) return node.forEach(scrub);
+  if (!node || typeof node !== 'object') return;
+  if (node.metadata?.labels) {
+    for (const l of RENDER_TIME_LABELS) delete node.metadata.labels[l];
+  }
+  for (const v of Object.values(node)) scrub(v);
+};
+objects.forEach(scrub);
 
 const take = (kind) => {
   const i = objects.findIndex((o) => o.kind === kind);
@@ -352,6 +364,25 @@ fs.writeFileSync(
 );
 for (const o of extras) {
   fs.writeFileSync(path.join(OUT, 'manifests', manifestName(o)), dump(o));
+}
+
+// The scrubbing above walks parsed objects, and one object is no longer
+// reachable that way: the ConsolePlugin travels as an opaque string inside a
+// ConfigMap, so it kept `helm.sh/chart` and `managed-by: Helm` and the init
+// container applied them to a cluster. The chart is where that was fixed —
+// this reads the bytes back and says so, because the next kind carried as data
+// will be just as invisible to a walk over `metadata.labels`.
+for (const f of fs.readdirSync(path.join(OUT, 'manifests'))) {
+  const text = fs.readFileSync(path.join(OUT, 'manifests', f), 'utf8');
+  for (const l of RENDER_TIME_LABELS) {
+    if (text.includes(`${l}:`)) {
+      throw new Error(
+        `${f} still carries ${l}. It describes how this was rendered, not ` +
+          'what OLM installs. If it is inside embedded data rather than on a ' +
+          'manifest, fix it in the chart: nothing here can reach it.',
+      );
+    }
+  }
 }
 
 const annotations = {

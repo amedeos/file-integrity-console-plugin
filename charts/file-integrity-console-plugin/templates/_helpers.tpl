@@ -30,6 +30,23 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
 {{/*
+Labels for an object this chart describes but does not create.
+
+The ConsolePlugin in initContainer mode is written by the pod at startup, so
+`managed-by: Helm` would be a false statement and `helm.sh/chart` names a chart
+that is not what installed it — under OLM there is no chart at all. Both are
+also the labels the bundle generator strips from every object it ships, and it
+cannot reach this one: it travels as an opaque string inside a ConfigMap.
+Getting it right at the source is what keeps those two agreeing.
+*/}}
+{{- define "file-integrity-console-plugin.selfWrittenLabels" -}}
+{{ include "file-integrity-console-plugin.selectorLabels" . }}
+{{- if .Chart.AppVersion }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
+{{- end }}
+
+{{/*
 Selector labels
 */}}
 {{- define "file-integrity-console-plugin.selectorLabels" -}}
@@ -86,7 +103,11 @@ kind: ConsolePlugin
 metadata:
   name: {{ template "file-integrity-console-plugin.name" . }}
   labels:
+    {{- if include "file-integrity-console-plugin.selfRegisters" . }}
+    {{- include "file-integrity-console-plugin.selfWrittenLabels" . | nindent 4 }}
+    {{- else }}
     {{- include "file-integrity-console-plugin.labels" . | nindent 4 }}
+    {{- end }}
 spec:
   displayName: {{ default (printf "%s Plugin" (include "file-integrity-console-plugin.name" .)) .Values.plugin.description }}
   i18n:
