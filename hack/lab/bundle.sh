@@ -138,14 +138,15 @@ log "Removing any previous installation"
 PLUGINS_BEFORE=$(oc get console.operator.openshift.io cluster \
   -o jsonpath='{range .spec.plugins[*]}{@}{"\n"}{end}' 2>/dev/null |
   grep -v "^${PLUGIN_NAME}$" | sort || true)
-FIO_CSV=$(oc get csv -n "$NAMESPACE" \
+FIO_CSV=$(oc get csv -n "$FIO_NAMESPACE" \
   -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null |
   grep '^file-integrity-operator\.' | head -1 || true)
 
-# Every deletion below names its object. This namespace belongs to the File
-# Integrity Operator as much as to the plugin, so a sweep — `oc delete all`, a
-# label selector that happens to match, deleting the namespace — would take FIO
-# down as a side effect. Nothing here is allowed to be that convenient.
+# Every deletion below names its object. The plugin has a namespace of its own
+# since 0.2.1, so a sweep would no longer take the File Integrity Operator down
+# with it — but the discipline stays, because it is what makes the checks after
+# the teardown mean something, and because $NAMESPACE is overridable and may
+# well be somewhere shared.
 
 if [ -n "$(oc get secret -n "$NAMESPACE" -l "owner=helm,name=$PLUGIN_NAME" \
   -o name 2>/dev/null)" ]; then
@@ -228,23 +229,37 @@ check "other consoles' plugins are untouched" "$PLUGINS_BEFORE" \
   "$(oc get console.operator.openshift.io cluster \
     -o jsonpath='{range .spec.plugins[*]}{@}{"\n"}{end}' 2>/dev/null | sort || true)"
 
-# This namespace is the File Integrity Operator's. Uninstalling the plugin must
-# be invisible to it — including its OperatorGroup, which is shared and which
-# nothing here may recreate.
+# Uninstalling the plugin must be invisible to the File Integrity Operator.
+# That is easier to guarantee since the plugin moved out of its namespace — but
+# easier is not the same as true, and the plugin still deletes a cluster-scoped
+# ConsolePlugin and patches console.operator, both of which reach outside
+# whatever namespace it lives in.
 if [ -n "$FIO_CSV" ]; then
   check "the File Integrity Operator is still installed" Succeeded \
-    "$(oc get csv "$FIO_CSV" -n "$NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null)"
+    "$(oc get csv "$FIO_CSV" -n "$FIO_NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null)"
   check "its deployment is still ready" \
-    "$(oc get deployment file-integrity-operator -n "$NAMESPACE" \
+    "$(oc get deployment file-integrity-operator -n "$FIO_NAMESPACE" \
       -o jsonpath='{.spec.replicas}' 2>/dev/null)" \
-    "$(oc get deployment file-integrity-operator -n "$NAMESPACE" \
+    "$(oc get deployment file-integrity-operator -n "$FIO_NAMESPACE" \
       -o jsonpath='{.status.readyReplicas}' 2>/dev/null)"
+  # Its own, in its own namespace, and nothing here has any business there.
+  check "its OperatorGroup is untouched" 1 \
+    "$(oc get operatorgroup -n "$FIO_NAMESPACE" -o name 2>/dev/null | wc -l)"
 else
-  skip "the File Integrity Operator is still installed" "not installed here"
+  skip "the File Integrity Operator is still installed" "not installed on this cluster"
 fi
 
-check "exactly one OperatorGroup" 1 \
-  "$(oc get operatorgroup -n "$NAMESPACE" -o name 2>/dev/null | wc -l)"
+# In the plugin's own namespace the OperatorGroup is one this script created,
+# so the question is not that it survived but that there is at most one: two in
+# a namespace make both invalid, and that is the state a careless re-run
+# produces. A namespace that does not exist yet has none, which is fine.
+if oc get namespace "$NAMESPACE" >/dev/null 2>&1; then
+  og_left=$(oc get operatorgroup -n "$NAMESPACE" -o name 2>/dev/null | wc -l)
+  check "no more than one OperatorGroup in $NAMESPACE" true \
+    "$([ "$og_left" -le 1 ] && echo true)"
+else
+  skip "no more than one OperatorGroup in $NAMESPACE" "the namespace does not exist yet"
+fi
 
 if [ "$CLEAN_ONLY" = true ]; then
   log "Clean only — stopping here"
@@ -342,6 +357,16 @@ spec:
 EOF
 
 wait_for "catalogue READY" 180 catalog_ready
+
+# Created rather than required: the plugin's namespace is its own and starts
+# out not existing, which is also what OLM does for a real install from the
+# suggested-namespace annotation. Never removed again, by this script or any
+# other — tearing down a namespace takes everything in it, and PLUGIN_NAMESPACE
+# may name somewhere with more in it than this. Delete it by hand.
+if ! oc get namespace "$NAMESPACE" >/dev/null 2>&1; then
+  info "namespace $NAMESPACE does not exist — creating it (nothing here removes it)"
+  oc create namespace "$NAMESPACE"
+fi
 
 # Two OperatorGroups in one namespace make both invalid, and one of them would
 # be the File Integrity Operator's. Creating one blindly is how an install
@@ -557,15 +582,29 @@ done
 
 # The narrowing, asked of the API server too. It can make a ConsolePlugin — it
 # has to, that is how the plugin registers — and it must not be able to remove
-# one, nor to enumerate what other operators have registered.
+# one.
 check "SA can create consoleplugins" yes \
   "$(oc auth can-i create consoleplugins \
     --as="system:serviceaccount:$NAMESPACE:$SA" 2>/dev/null || true)"
-for verb in delete list watch; do
-  check "SA cannot $verb consoleplugins" no \
-    "$(oc auth can-i "$verb" consoleplugins \
-      --as="system:serviceaccount:$NAMESPACE:$SA" 2>/dev/null || true)"
-done
+check "SA cannot delete consoleplugins" no \
+  "$(oc auth can-i delete consoleplugins \
+    --as="system:serviceaccount:$NAMESPACE:$SA" 2>/dev/null || true)"
+
+# Reading one is not ours to deny, and asserting otherwise asserted something
+# false about OpenShift: the release payload binds `console-extensions-reader`
+# to system:authenticated, granting get, list and watch on consoleplugins and
+# seven sibling kinds to every authenticated identity on the cluster. Our
+# ClusterRole carries no such verb — the rules read above are the whole of what
+# this bundle grants — so `oc auth can-i list` answers yes for a reason that
+# has nothing to do with us.
+#
+# Asked of an account with no relation to this plugin, so a yes says exactly
+# that: the grant is the cluster's. If it ever answers no, the reading becomes
+# ours to account for again and a "SA cannot list consoleplugins" check belongs
+# back here.
+check "reading consoleplugins is the cluster's grant, not this bundle's" yes \
+  "$(oc auth can-i list consoleplugins \
+    --as="system:serviceaccount:default:default" 2>/dev/null || true)"
 
 # --------------------------------------------------------------------------
 
