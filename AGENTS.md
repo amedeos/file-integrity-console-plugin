@@ -82,6 +82,19 @@ file it touches and buries real changes.
   **A third rule is a design change, not a tweak.** In `manifest` mode — what a
   Helm install gets — even these two are absent, and CI asserts that separately.
 
+  **Reading a `ConsolePlugin` is not ours to grant or to deny.** The release
+  payload binds `console-extensions-reader` to `system:authenticated`, giving
+  `get`, `list` and `watch` on `consoleplugins` — and on seven sibling kinds —
+  to every authenticated identity on the cluster. So `oc auth can-i list
+  consoleplugins` answers *yes* for our ServiceAccount, for the `default`
+  account in any namespace, and for the plugin in `manifest` mode where it holds
+  no cluster rule at all. `hack/lab/bundle.sh` once asserted the opposite and
+  was asserting something false about OpenShift; it now asks an unrelated
+  account instead, so a *yes* says the grant is the cluster's. What is ours is
+  `create`, which that same unrelated account is refused — that contrast is what
+  gives the check its content. Observed on 4.22 by reading the ClusterRole, not
+  inferred.
+
   **Under OLM a third rule does appear, and it is not ours.** Every CSV gets an
   `OperatorCondition`, and OLM creates a Role — named after the CSV, owned by
   that condition, labelled `olm.managed` — letting the operator `get`, `update`

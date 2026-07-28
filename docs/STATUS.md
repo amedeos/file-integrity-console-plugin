@@ -742,6 +742,24 @@ project twice, so it gets its own change rather than a ride-along here.
 cluster-scoped and has no owner reference, so nothing else removes it — and `oc delete
 catalogsource fio-plugin-test -n openshift-marketplace`.
 
+### 0.2.0 installed from the catalogue — 28 July 2026
+
+Released and installed: PR #40 merged, tag `0.2.0` on the merge commit, image built (it waited
+eight minutes behind the `main` build and neither was dropped — see the note on Quay's queue),
+`hack/lab/bundle.sh 0.2.0` run against the lab. **Twenty-two checks, twenty passed**, and the two
+that failed were the check being wrong rather than the plugin.
+
+They asserted the ServiceAccount cannot `list` or `watch` consoleplugins. It can, and so can every
+authenticated identity on the cluster: the release payload binds `console-extensions-reader` to
+`system:authenticated`. Written blind the day before and never executed until now, which is the
+whole argument for running these against a cluster rather than reasoning about them. The invariant
+is untouched — our ClusterRole holds the two rules it declares and no verb more, read back off the
+installed object — and `create` is refused to an unrelated account, which is what gives the check
+next to it any content. Recorded in `AGENTS.md`; the script now asks an unrelated account instead.
+
+The plugin registered itself, `console.operator` lists it, `/healthz` answers. **Not yet done: the
+install into another namespace**, which is the one thing 0.2.0 exists to make work.
+
 ### Open defect: the re-initialise confirmation on 4.16 — 27 July 2026
 
 Reported from `hack/lab/console.sh 0.1.0 4.16`, the first time that build had been loaded by a

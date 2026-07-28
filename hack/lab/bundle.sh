@@ -557,15 +557,29 @@ done
 
 # The narrowing, asked of the API server too. It can make a ConsolePlugin — it
 # has to, that is how the plugin registers — and it must not be able to remove
-# one, nor to enumerate what other operators have registered.
+# one.
 check "SA can create consoleplugins" yes \
   "$(oc auth can-i create consoleplugins \
     --as="system:serviceaccount:$NAMESPACE:$SA" 2>/dev/null || true)"
-for verb in delete list watch; do
-  check "SA cannot $verb consoleplugins" no \
-    "$(oc auth can-i "$verb" consoleplugins \
-      --as="system:serviceaccount:$NAMESPACE:$SA" 2>/dev/null || true)"
-done
+check "SA cannot delete consoleplugins" no \
+  "$(oc auth can-i delete consoleplugins \
+    --as="system:serviceaccount:$NAMESPACE:$SA" 2>/dev/null || true)"
+
+# Reading one is not ours to deny, and asserting otherwise asserted something
+# false about OpenShift: the release payload binds `console-extensions-reader`
+# to system:authenticated, granting get, list and watch on consoleplugins and
+# seven sibling kinds to every authenticated identity on the cluster. Our
+# ClusterRole carries no such verb — the rules read above are the whole of what
+# this bundle grants — so `oc auth can-i list` answers yes for a reason that
+# has nothing to do with us.
+#
+# Asked of an account with no relation to this plugin, so a yes says exactly
+# that: the grant is the cluster's. If it ever answers no, the reading becomes
+# ours to account for again and a "SA cannot list consoleplugins" check belongs
+# back here.
+check "reading consoleplugins is the cluster's grant, not this bundle's" yes \
+  "$(oc auth can-i list consoleplugins \
+    --as="system:serviceaccount:default:default" 2>/dev/null || true)"
 
 # --------------------------------------------------------------------------
 
