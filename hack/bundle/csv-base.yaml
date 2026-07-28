@@ -138,16 +138,20 @@ spec:
   maturity: alpha
 
   provider:
-    name: Amedeo Salvati
+    name: amedeos
     url: https://github.com/amedeos/file-integrity-console-plugin
 
-  # A forwarding alias rather than a personal address. This field is published
-  # in a public catalogue and shown in OperatorHub, so it is indexed and cannot
-  # be withdrawn from where it has already been copied. It still has to be an
-  # address someone reads: it is where a user or a reviewer writes when
-  # something breaks, possibly years from now.
+  # The handle rather than the legal name, and a forwarding alias rather than a
+  # personal address, for one reason: these fields are published in a public
+  # catalogue and shown in OperatorHub, so they are indexed and cannot be
+  # withdrawn from where they have already been copied. The handle is also what
+  # the `url` above and the fork that opens the submission point at, so it is
+  # the identity a reader can actually check.
+  #
+  # The address still has to be one someone reads: it is where a user or a
+  # reviewer writes when something breaks, possibly years from now.
   maintainers:
-    - name: Amedeo Salvati
+    - name: amedeos
       email: cops.capable425@passmail.net
 
   links:

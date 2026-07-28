@@ -328,7 +328,7 @@ non-default configuration.
 ```sh
 helm install file-integrity-console-plugin charts/file-integrity-console-plugin \
   --namespace file-integrity-console-plugin --create-namespace \
-  --set plugin.image=quay.io/asalvati/file-integrity-console-plugin:0.2.1
+  --set plugin.image=quay.io/asalvati/file-integrity-console-plugin:0.3.1
 ```
 
 To switch off reading files from nodes:
