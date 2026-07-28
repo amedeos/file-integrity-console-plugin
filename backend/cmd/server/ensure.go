@@ -29,7 +29,9 @@ const ensureConsolePluginCmd = "ensure-consoleplugin"
 // leaves the pod in Init:Error, which `oc get pods` says out loud and which
 // hack/lab/bundle.sh already fails on.
 func ensureConsolePlugin(args []string) {
-	fs := flag.NewFlagSet(ensureConsolePluginCmd, flag.ExitOnError)
+	// ContinueOnError, so the check below is the thing that exits rather than
+	// dead code sitting behind a Parse that has already called os.Exit itself.
+	fs := flag.NewFlagSet(ensureConsolePluginCmd, flag.ContinueOnError)
 	path := fs.String("consoleplugin-file",
 		envString("consoleplugin-file", "/etc/file-integrity-plugin/consoleplugin.yaml"),
 		"the ConsolePlugin to apply, mounted from a ConfigMap")
