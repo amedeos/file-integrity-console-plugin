@@ -20,6 +20,15 @@ spec:
         # startup, so without this a `helm upgrade` would report success while
         # the old policy stayed in force.
         checksum/policy: {{ printf "%s|%s" (toYaml .Values.backend.denyList) (toYaml .Values.backend.extraDenyList) | sha256sum }}
+        {{- if include "file-integrity-console-plugin.selfRegisters" . }}
+        # And for the same reason: in this mode the ConsolePlugin is written
+        # only when a pod starts, so editing the ConfigMap without replacing
+        # the pods leaves the live object as it was. `plugin.description` and
+        # `plugin.basePath` appear nowhere else in this template, so a
+        # `helm upgrade` changing either would otherwise report success and
+        # change nothing the console can see.
+        checksum/consoleplugin: {{ include "file-integrity-console-plugin.consolePluginObject" . | sha256sum }}
+        {{- end }}
     spec:
       {{- with .Values.plugin.imagePullSecrets }}
       imagePullSecrets:

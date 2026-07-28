@@ -1,3 +1,13 @@
+{{- /*
+Shipped as a manifest only when the pod does not write it itself.
+
+Switching an existing release from manifest to initContainer is not an upgrade
+this chart handles: the template renders empty, so Helm deletes the object as
+one dropped from the release, and it does that without waiting for the new pods
+— whose init containers may already have applied it. The deletion then wins and
+nothing recreates the object until a pod restarts, while `helm upgrade` reports
+success. Uninstall and install again, or roll the pods afterwards.
+*/}}
 {{- if not (include "file-integrity-console-plugin.selfRegisters" .) }}
 {{- include "file-integrity-console-plugin.consolePluginObject" . }}
 {{- end }}
