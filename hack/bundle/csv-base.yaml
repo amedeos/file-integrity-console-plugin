@@ -47,7 +47,7 @@ metadata:
     # leaves the console unable to fetch the plugin's assets. It is also the
     # namespace the File Integrity Operator itself runs in, which is why it is
     # the natural answer rather than merely a convenient one.
-    operatorframework.io/suggested-namespace: openshift-file-integrity
+    operatorframework.io/suggested-namespace: file-integrity-console-plugin
 spec:
   displayName: File Integrity Console Plugin
   description: |
@@ -106,11 +106,12 @@ spec:
     * **Install the [File Integrity Operator][fio] first.** This plugin displays
       what that operator produces and scans nothing itself. On a cluster with no
       `FileIntegrity` CRD the navigation entry stays hidden.
-    * **`openshift-file-integrity` is suggested, not required.** The install
-      form offers it by default and it is the tidy place for this to live,
-      beside the operator it displays. Another namespace works: the plugin reads
-      the namespace it was installed into and registers itself with the console
-      accordingly.
+    * **It installs into its own namespace,** `file-integrity-console-plugin`,
+      which the form offers by default and creates for you. It does not need to
+      sit beside the File Integrity Operator: it reads that operator's objects
+      through the browsing user's token, and where to look for them is a setting
+      of its own. Any other namespace works too — the plugin reads the one it
+      was installed into and registers with the console accordingly.
     * **Enable the plugin when the form asks.** OperatorHub defaults the *Console
       plugin* choice to **Disabled** for any catalogue it does not trust, which
       includes the community one. Left that way, the operator runs and no menu
@@ -163,33 +164,36 @@ spec:
   # the mode is not describing a watch scope here. It is describing the only
   # thing that actually varies: **where the pod ends up**.
   #
-  # And that is fixed. The ConsolePlugin names the Service's namespace
-  # literally, because OLM fills nothing in inside a cluster-scoped manifest.
-  # Installed anywhere but `openshift-file-integrity`, the console cannot reach
-  # the backend. AllNamespaces would put the pod in `openshift-operators`;
-  # SingleNamespace and MultiNamespace let the pod's namespace and the watched
-  # one differ, which is the same mistake wearing a hat. OwnNamespace, plus the
-  # suggested-namespace annotation, is the only combination that lands it in
-  # the right place.
+  # It is no longer fixed — 0.2.0 made the pod read its own namespace and
+  # register for that one, so any namespace works. What is still worth choosing
+  # is the *default*, and AllNamespaces would not let us choose: it puts the pod
+  # in `openshift-operators`, shared with every other globally-installed
+  # operator, where a namespaced rule granted to something else for its own
+  # reasons is inherited by whatever else lives there. This plugin is built
+  # around holding no namespaced rule at all; landing it in a shared namespace
+  # gives that away for nothing. SingleNamespace and MultiNamespace let the
+  # pod's namespace and the watched one differ, which is meaningless here —
+  # this operator watches nothing.
   #
-  # Two observed facts, in that order, and neither was in any manifest:
+  # So: OwnNamespace, plus a suggested namespace of its own,
+  # `file-integrity-console-plugin`. Not an `openshift-` name, which is reserved
+  # for the cluster's own alongside `kube-` and refused to anyone who is not
+  # cluster-admin.
   #
-  #   1. `openshift-file-integrity` already has an OperatorGroup with
-  #      `targetNamespaces: ["openshift-file-integrity"]`, created when the
-  #      File Integrity Operator was installed. A CSV offering only the global
-  #      mode cannot enter it — "The OperatorGroup in the
-  #      openshift-file-integrity Namespace does not support the global
-  #      installation mode."
-  #   2. Merely *supporting* the other modes does not fix that, because the
-  #      console does not pick the workable one. It reduces over the supported
-  #      modes and prefers AllNamespaces whenever it is offered at all
-  #      (operator-hub-subscribe.tsx), then applies the suggested namespace to
-  #      that choice — reproducing the impossible combination by default.
+  # One observed fact, which is why this is spelled out rather than left to the
+  # obvious guess: the console does not pick the workable install mode. It
+  # reduces over the supported ones and prefers AllNamespaces whenever it is
+  # offered at all (operator-hub-subscribe.tsx), then applies the suggested
+  # namespace to that choice. Merely *supporting* the other modes would
+  # therefore change nothing about what a user gets by default.
   #
   # With the global mode withdrawn, the form falls to "A specific namespace on
-  # the cluster" and pre-selects *Operator recommended Namespace:
-  # openshift-file-integrity* (`useSuggestedNSForSingleInstallMode` starts
-  # true). One click, and it is the right one.
+  # the cluster" and pre-selects *Operator recommended Namespace*
+  # (`useSuggestedNSForSingleInstallMode` starts true), creating it. One click.
+  #
+  # Until 0.2.0 this block argued for `openshift-file-integrity` instead, and
+  # the argument was sound while a shipped ConsolePlugin had to name a namespace
+  # it could not know. That is worth knowing before rearranging it back.
   installModes:
     - type: OwnNamespace
       supported: true

@@ -31,13 +31,20 @@ const PACKAGE = 'file-integrity-console-plugin';
 const CHART = path.join(ROOT, 'charts', PACKAGE);
 const IMAGE_REPO = 'quay.io/asalvati/file-integrity-console-plugin';
 
-// The namespace the ConsolePlugin names as the Service's own. OLM templates
-// nothing inside a cluster-scoped manifest, so this is literal in the shipped
-// bundle rather than resolved at install time — which is why the CSV carries
-// `operatorframework.io/suggested-namespace` and why the README says the
-// operator has to be installed here. It is also where the File Integrity
-// Operator itself runs.
-const NAMESPACE = 'openshift-file-integrity';
+// The namespace `helm template` is pointed at, which is where the ConfigMap
+// lands and what the ConsolePlugin inside it says before the init container
+// overwrites it with the pod's own. So it is a default now, not a requirement:
+// nothing in the shipped bundle has to name the namespace it will be installed
+// into, which is what 0.2.0 changed.
+//
+// The plugin's own, not the File Integrity Operator's. It has no need to sit
+// beside the operator — it reaches FileIntegrity objects through the browsing
+// user's token, and where to look for them is a separate setting
+// (`fio-namespace`, defaulting to openshift-file-integrity). And it may not
+// take an `openshift-` name: that prefix and `kube-` are reserved for the
+// cluster's own, refused to anyone who is not cluster-admin, and this is a
+// community operator.
+const NAMESPACE = 'file-integrity-console-plugin';
 
 // Which console generation this branch builds for, keyed by the suffix its
 // version carries. This table is the only place the three branches differ, and

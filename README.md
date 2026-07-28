@@ -242,11 +242,18 @@ oc patch consoles.operator.openshift.io cluster --type=json \
   -p '[{"op":"add","path":"/spec/plugins/-","value":"file-integrity-console-plugin"}]'
 ```
 
-**Install it into `openshift-file-integrity`**, which the form pre-selects as
-*Operator recommended Namespace*. It is where the File Integrity Operator runs,
-and the plugin belongs beside the operator whose results it reads. The bundle
-offers only the single-namespace install mode, which is why the form defaults
-this way; a global install would put the pod in `openshift-operators` instead.
+**It installs into its own namespace**, `file-integrity-console-plugin`, which
+the form pre-selects as *Operator recommended Namespace* and creates. It does
+not belong beside the File Integrity Operator: it reads that operator's objects
+through the browsing user's token, and which namespace to read them from is a
+setting of its own ([`fio-namespace`](#values-worth-knowing)). The bundle offers
+only the single-namespace install mode, which is why the form defaults this way
+— a global install would put the pod in `openshift-operators`, shared with every
+other globally-installed operator, and a plugin built around holding no
+namespaced rule has nothing to gain from living there.
+
+Any other namespace works. The plugin reads the one it was installed into and
+registers with the console for that one.
 
 **The bundle ships no `ConsolePlugin`.** An init container creates it when the
 pod starts, reading its own namespace through the downward API. Two reasons,
@@ -280,7 +287,7 @@ environment for exactly that reason — so to turn on reading files from nodes:
 
 ```sh
 oc patch subscription file-integrity-console-plugin \
-  -n openshift-file-integrity --type=merge -p '
+  -n file-integrity-console-plugin --type=merge -p '
 spec:
   config:
     env:
@@ -320,8 +327,8 @@ non-default configuration.
 
 ```sh
 helm install file-integrity-console-plugin charts/file-integrity-console-plugin \
-  --namespace openshift-file-integrity \
-  --set plugin.image=quay.io/asalvati/file-integrity-console-plugin:0.1.0
+  --namespace file-integrity-console-plugin --create-namespace \
+  --set plugin.image=quay.io/asalvati/file-integrity-console-plugin:0.2.1
 ```
 
 To switch off reading files from nodes:

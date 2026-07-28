@@ -176,6 +176,23 @@ file it touches and buries real changes.
   downward API — which also removes the older defect, that OLM templates nothing
   inside a cluster-scoped manifest and so a shipped `ConsolePlugin` had to name
   a namespace it could not know.
+- **The plugin has a namespace of its own, and two uses of one name must not be
+  confused.** `file-integrity-console-plugin` is where the *plugin* installs;
+  `openshift-file-integrity` is where the *File Integrity Operator* runs and
+  where the plugin looks for its objects — a separate setting, `fio-namespace`,
+  with its own default. The code always kept them apart; until 0.3.0 the prose
+  did not, and the CSV argued at length for installing beside the operator on a
+  premise 0.2.0 had already removed. Nothing couples them: every read is made
+  with the browsing user's token.
+
+  **It may not be an `openshift-` name.** That prefix and `kube-` are the
+  cluster's own — a project request carrying either is refused to anyone who is
+  not cluster-admin — and this is a community operator. CI asserts the suggested
+  namespace as a literal for that reason. `AllNamespaces` is the other way to
+  choose nothing, and it chooses `openshift-operators`: shared with every
+  globally-installed operator, where a namespaced rule granted to one of them is
+  inherited by whatever else lives there. A plugin whose whole design is to hold
+  no namespaced rule gains nothing from that address.
 
 ## Supporting more than one console generation
 

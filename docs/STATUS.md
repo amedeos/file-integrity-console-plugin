@@ -730,10 +730,10 @@ mounts. Two copies of that spec would be the defect the generator exists to prev
 3. **`hack/lab/console.sh 0.2.0 4.16 4.19`** — but note the release branches are *not* being
    merged forward yet, by decision, so those images stay at 0.1.0 until they are.
 
-**Deliberately deferred:** moving the plugin out of `openshift-file-integrity`, which the init
-container now makes possible; and folding the three branches into one image that picks its
-frontend at runtime — attractive, and expensive in exactly the place that has already cost this
-project twice, so it gets its own change rather than a ride-along here.
+**Deliberately deferred:** folding the three branches into one image that picks its frontend at
+runtime — attractive, and expensive in exactly the place that has already cost this project twice,
+so it gets its own change rather than a ride-along here. *Moving the plugin out of
+`openshift-file-integrity` was deferred here too, and undeferred a day later — see 0.3.0 below.*
 
 **Still on the lab cluster right now:** the plugin installed from the test catalogue
 (`fio-plugin-test` in `openshift-marketplace`), running
@@ -759,6 +759,35 @@ next to it any content. Recorded in `AGENTS.md`; the script now asks an unrelate
 
 The plugin registered itself, `console.operator` lists it, `/healthz` answers. **Not yet done: the
 install into another namespace**, which is the one thing 0.2.0 exists to make work.
+
+### 0.3.0 — the plugin gets its own namespace — 28 July 2026
+
+Until now the plugin installed into `openshift-file-integrity`, and the CSV argued for it at
+length: a shipped `ConsolePlugin` names its Service's namespace literally, OLM fills nothing in
+inside a cluster-scoped manifest, so the pod had to land where the manifest said. **0.2.0 removed
+that premise and the argument was left standing on top of it.** The suggested namespace is now
+`file-integrity-console-plugin`.
+
+It never needed to sit beside the operator. It reads `FileIntegrity` objects through the browsing
+user's token, and *where* to read them is a setting of its own — `fio-namespace`, still defaulting
+to `openshift-file-integrity`. Those two uses of one name were always distinct in the code; only
+the prose confused them.
+
+**Not an `openshift-` name.** That prefix and `kube-` are the cluster's own: a project request
+carrying either is refused to anyone who is not cluster-admin. `openshift-file-integrity` belongs
+to a Red Hat operator; this is a community one.
+
+`AllNamespaces` was the alternative and would put the pod in `openshift-operators`, shared with
+every other globally-installed operator — where a namespaced rule granted to something else, for
+its own reasons, is inherited by everything living there. A plugin built around holding no
+namespaced rule at all has nothing to gain from that address. `OwnNamespace` stays, for a reason
+that is now about isolation rather than about reachability.
+
+Version 0.3.0 and not 0.2.1: where an operator installs by default is not a patch.
+
+**Still to do:** tag and image, then `hack/lab/bundle.sh 0.3.0` — which now installs into the new
+namespace by default, so the round trip *is* the verification that the baked-in namespace is gone.
+`PLUGIN_NAMESPACE` overrides it for a run somewhere unexpected.
 
 ### Open defect: the re-initialise confirmation on 4.16 — 27 July 2026
 

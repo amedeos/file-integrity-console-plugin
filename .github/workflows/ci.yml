@@ -656,13 +656,18 @@ jobs:
             'metadata.namespace',
           );
 
-          // Still declared, because it is what the console offers at install
-          // time and what the README tells people to accept. It no longer has
-          // to agree with anything inside the plugin — that is the point.
+          // The plugin's own namespace, not the File Integrity Operator's: it
+          // reads that operator's objects through the browsing user's token and
+          // has no reason to sit beside it. Asserted as a literal rather than
+          // against anything inside the plugin, because nothing inside the
+          // plugin names a namespace any more — that is the point.
+          //
+          // It must not begin with `openshift-` or `kube-`, which are the
+          // cluster's own and refused to anyone who is not cluster-admin.
           check(
             'suggested namespace',
             csv.metadata.annotations['operatorframework.io/suggested-namespace'],
-            'openshift-file-integrity',
+            'file-integrity-console-plugin',
           );
 
           if (fail.length) {
