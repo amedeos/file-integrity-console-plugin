@@ -654,13 +654,86 @@ Install, teardown and re-install were each run, in that order, so the round trip
 well as correct. This is the first installation of this operator from a release tag rather than a
 hand-pushed `:test` image.
 
+### The community submission — 27 July 2026
+
+[PR #10572][sub] submits the 4.22 bundle. The hosted pipeline ran and **failed one task**,
+`static-tests`, on one thing:
+
+```
+check_osdk_bundle_validate_operator_framework
+  Error: Value console.openshift.io/v1, Kind=ConsolePlugin:
+         unsupported media type registry+v1 for bundle object
+```
+
+**Our CI passes the same validation, and the difference is the `operator-sdk` version.** Bisected
+against this bundle: 1.28.1, 1.34.1, 1.36.1, 1.37.0, 1.38.0 and 1.39.2 all reject `ConsolePlugin`;
+**1.40.0 and later accept it**, and we pin 1.42.3. So the community pipeline runs something older
+than 1.40.0. `operator-registry` lists `ConsolePlugin` in `supportedResources` as cluster-scoped,
+and OLM installs the bundle without complaint — which is exactly why nothing on a cluster ever
+showed this.
+
+Two things it did *not* complain about, both of which were open questions:
+
+- **The missing `tests/scorecard/`.** Every operator examined ships one and we deliberately did
+  not, because three of the four stock tests concern CRDs this operator does not own. Not
+  required.
+- **The `ConsolePlugin` kind itself, at install time.** Only the validator objects.
+
+There is also a non-blocking warning that new operators should adopt the FBC workflow rather than
+`registry+v1` bundles. Worth reading before the 4.19 and 4.16 submissions, since it may change how
+the three bundles are kept apart.
+
+The fix is not ours to make: removing the `ConsolePlugin` would remove the product. The ask is for
+the pipeline's `operator-sdk` to be updated, or the check waived — the pipeline has an
+`apply-test-waivers` task, though the documented route is to ask the maintainers on the PR.
+
+[sub]: https://github.com/redhat-openshift-ecosystem/community-operators-prod/pull/10572
+
+### 0.2.0 — the plugin registers itself — 27 July 2026
+
+Waiting for someone else's pipeline to be upgraded is not a plan, so the bundle stops shipping the
+object it cannot ship. **An init container creates the `ConsolePlugin` at startup**, reading its
+own namespace through the downward API. `operator-sdk bundle validate` 1.39.2 — the version that
+rejected us — now passes.
+
+The second reason is the better one and would have justified the change on its own: OLM templates
+nothing inside a cluster-scoped manifest, so a shipped `ConsolePlugin` had to name its Service's
+namespace literally, and an install anywhere but `openshift-file-integrity` produced a plugin the
+console could not reach. That class of failure is now gone.
+
+**An init container rather than a controller**, and the reason is the failure mode rather than the
+feature. The object is written once and never drifts, so reconciliation would buy only recovery
+from a manual deletion — at the price of the worse silence: a controller that cannot write it logs
+and retries while the pod stays `Running`, the deployment stays `Ready`, and the console shows
+nothing. That is a shape this repository has chased three times. `Init:Error` is loud.
+
+It is a subcommand of the same binary, so the image and its supply chain are unchanged.
+
+**The invariant is rewritten, not dropped**, and `AGENTS.md` now states it as *the request-serving
+path has no authority of its own*. Namespaced rules: still none, on both paths. Cluster-wide: two,
+`create` on `consoleplugins` and `get`/`update`/`patch` on this plugin's own — `resourceNames`
+narrows everything it can, and it cannot narrow `create`, because the object has no name yet when
+the request is admitted. Neither reaches data belonging to anyone. In `manifest` mode, which is
+what a Helm install gets, even those two are absent.
+
+`plugin.consolePlugin.mode` selects between the two, and the object's spec is defined once in
+`_helpers.tpl` — rendered either as a manifest or as the body of the ConfigMap the init container
+mounts. Two copies of that spec would be the defect the generator exists to prevent.
+
 **Next, in order:**
 
-1. **`hack/lab/console.sh 0.1.0 4.16 4.19`** — the two release builds have not been loaded by a
-   console since they were published.
-2. **Submit**, one pull request per bundle to `community-operators-prod`, starting with 4.22 alone:
-   it is the generation that has been installed end to end, and the community CI is better learned
-   on one bundle than on three.
+1. **`hack/lab/bundle.sh 0.2.0`** on the lab cluster, after the tag and the image exist. Then
+   install once into a namespace that is *not* `openshift-file-integrity` and confirm the plugin
+   still loads — the failure this design removes, and the only way to see that it is gone.
+2. **Update PR #10572** to 0.2.0, or open a fresh one. Answer the maintainers with the version
+   bisection either way, since their pipeline will keep rejecting the kind for everyone else.
+3. **`hack/lab/console.sh 0.2.0 4.16 4.19`** — but note the release branches are *not* being
+   merged forward yet, by decision, so those images stay at 0.1.0 until they are.
+
+**Deliberately deferred:** folding the three branches into one image that picks its frontend at
+runtime — attractive, and expensive in exactly the place that has already cost this project twice,
+so it gets its own change rather than a ride-along here. *Moving the plugin out of
+`openshift-file-integrity` was deferred here too, and undeferred a day later — see 0.3.0 below.*
 
 **Still on the lab cluster right now:** the plugin installed from the test catalogue
 (`fio-plugin-test` in `openshift-marketplace`), running
@@ -668,6 +741,53 @@ hand-pushed `:test` image.
 `oc delete csv`, `oc delete consoleplugin file-integrity-console-plugin` — the last one is
 cluster-scoped and has no owner reference, so nothing else removes it — and `oc delete
 catalogsource fio-plugin-test -n openshift-marketplace`.
+
+### 0.2.0 installed from the catalogue — 28 July 2026
+
+Released and installed: PR #40 merged, tag `0.2.0` on the merge commit, image built (it waited
+eight minutes behind the `main` build and neither was dropped — see the note on Quay's queue),
+`hack/lab/bundle.sh 0.2.0` run against the lab. **Twenty-two checks, twenty passed**, and the two
+that failed were the check being wrong rather than the plugin.
+
+They asserted the ServiceAccount cannot `list` or `watch` consoleplugins. It can, and so can every
+authenticated identity on the cluster: the release payload binds `console-extensions-reader` to
+`system:authenticated`. Written blind the day before and never executed until now, which is the
+whole argument for running these against a cluster rather than reasoning about them. The invariant
+is untouched — our ClusterRole holds the two rules it declares and no verb more, read back off the
+installed object — and `create` is refused to an unrelated account, which is what gives the check
+next to it any content. Recorded in `AGENTS.md`; the script now asks an unrelated account instead.
+
+The plugin registered itself, `console.operator` lists it, `/healthz` answers. **Not yet done: the
+install into another namespace**, which is the one thing 0.2.0 exists to make work.
+
+### 0.3.0 — the plugin gets its own namespace — 28 July 2026
+
+Until now the plugin installed into `openshift-file-integrity`, and the CSV argued for it at
+length: a shipped `ConsolePlugin` names its Service's namespace literally, OLM fills nothing in
+inside a cluster-scoped manifest, so the pod had to land where the manifest said. **0.2.0 removed
+that premise and the argument was left standing on top of it.** The suggested namespace is now
+`file-integrity-console-plugin`.
+
+It never needed to sit beside the operator. It reads `FileIntegrity` objects through the browsing
+user's token, and *where* to read them is a setting of its own — `fio-namespace`, still defaulting
+to `openshift-file-integrity`. Those two uses of one name were always distinct in the code; only
+the prose confused them.
+
+**Not an `openshift-` name.** That prefix and `kube-` are the cluster's own: a project request
+carrying either is refused to anyone who is not cluster-admin. `openshift-file-integrity` belongs
+to a Red Hat operator; this is a community one.
+
+`AllNamespaces` was the alternative and would put the pod in `openshift-operators`, shared with
+every other globally-installed operator — where a namespaced rule granted to something else, for
+its own reasons, is inherited by everything living there. A plugin built around holding no
+namespaced rule at all has nothing to gain from that address. `OwnNamespace` stays, for a reason
+that is now about isolation rather than about reachability.
+
+Version 0.3.0 and not 0.2.1: where an operator installs by default is not a patch.
+
+**Still to do:** tag and image, then `hack/lab/bundle.sh 0.3.0` — which now installs into the new
+namespace by default, so the round trip *is* the verification that the baked-in namespace is gone.
+`PLUGIN_NAMESPACE` overrides it for a run somewhere unexpected.
 
 ### Open defect: the re-initialise confirmation on 4.16 — 27 July 2026
 
