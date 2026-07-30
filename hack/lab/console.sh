@@ -8,6 +8,17 @@
 #   hack/lab/console.sh 0.1.0 4.19       one generation
 #   hack/lab/console.sh 0.1.0 4.16 --keep  leave the containers running
 #
+# PLUGIN_IMAGE names an image outright, in place of the one derived from a
+# version, and the version argument is then not needed:
+#
+#   PLUGIN_IMAGE=quay.io/asalvati/file-integrity-console-plugin:fix_something \
+#     hack/lab/console.sh 4.16
+#
+# That is what a build which is not a release looks like: Quay builds an image
+# on every branch push and names it after the ref, with slashes turned into
+# underscores. Without this the only way to look at a fix before publishing it
+# was to run the two podman commands underneath this script by hand.
+#
 # What this does NOT test: OLM. The plugin is loaded through BRIDGE_PLUGINS,
 # which bypasses the ConsolePlugin resource, the CSV, the Subscription and the
 # catalogue entirely — use hack/lab/bundle.sh for that, against a cluster of
@@ -25,7 +36,13 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/tools.sh"
 
 VERSION=${1:-}
-[ $# -gt 0 ] && shift
+# A generation where the version belongs means no version was given, which is
+# allowed only when PLUGIN_IMAGE says what to run instead.
+if [[ $VERSION =~ ^4\.(16|19|22)$ ]] || [ "$VERSION" = --keep ]; then
+  VERSION=
+else
+  [ $# -gt 0 ] && shift
+fi
 
 KEEP=false
 GENERATIONS=()
@@ -38,9 +55,11 @@ for arg in "$@"; do
 done
 [ ${#GENERATIONS[@]} -gt 0 ] && : || GENERATIONS=(4.16 4.19)
 
-[ -n "$VERSION" ] || die "usage: $0 <version> [4.16] [4.19] [4.22] [--keep]
+[ -n "$VERSION" ] || [ -n "${PLUGIN_IMAGE:-}" ] ||
+  die "usage: $0 <version> [4.16] [4.19] [4.22] [--keep]
   <version> is the base release version. Each generation's own image is
-  derived from it: 0.1.0 -> 0.1.0-ocp4.16 on the 4.16 console."
+  derived from it: 0.1.0 -> 0.1.0-ocp4.16 on the 4.16 console.
+  Set PLUGIN_IMAGE to name an image outright and omit the version."
 
 # port <generation> — 4.16 -> 9016. Distinct per generation so several can run
 # at once, which is the point of running them at all.
@@ -80,7 +99,10 @@ for gen in "${GENERATIONS[@]}"; do
   slug=$(slug_for "$gen")
   net="fio-lab-$slug"
   port=$(port_for "$gen")
-  plugin_image="$IMAGE_REPO:$(generation_version "$VERSION" "$gen")"
+  # One image for every generation when it is named outright — running two at
+  # once then makes no sense, but nothing stops it either: the same build
+  # loaded by two consoles is exactly the comparison this script exists for.
+  plugin_image=${PLUGIN_IMAGE:-$IMAGE_REPO:$(generation_version "$VERSION" "$gen")}
   console_image="quay.io/openshift/origin-console:$gen"
   zstream=$(generation_zstream "$gen")
 
