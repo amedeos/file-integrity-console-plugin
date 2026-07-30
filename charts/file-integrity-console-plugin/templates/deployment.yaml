@@ -20,12 +20,58 @@ spec:
         # startup, so without this a `helm upgrade` would report success while
         # the old policy stayed in force.
         checksum/policy: {{ printf "%s|%s" (toYaml .Values.backend.denyList) (toYaml .Values.backend.extraDenyList) | sha256sum }}
+        {{- if include "file-integrity-console-plugin.selfRegisters" . }}
+        # And for the same reason: in this mode the ConsolePlugin is written
+        # only when a pod starts, so editing the ConfigMap without replacing
+        # the pods leaves the live object as it was. `plugin.description` and
+        # `plugin.basePath` appear nowhere else in this template, so a
+        # `helm upgrade` changing either would otherwise report success and
+        # change nothing the console can see.
+        checksum/consoleplugin: {{ include "file-integrity-console-plugin.consolePluginObject" . | sha256sum }}
+        {{- end }}
     spec:
       {{- with .Values.plugin.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "file-integrity-console-plugin.serviceAccountName" . }}
+      {{- if include "file-integrity-console-plugin.selfRegisters" . }}
+      # Registering the plugin with the console before the pod serves anything.
+      #
+      # An init container rather than a controller, because the object is
+      # written once and never drifts: reconciliation would buy only recovery
+      # from a manual deletion, and would buy it at the price of the worse
+      # failure — a controller that cannot write it logs and retries while the
+      # pod stays Running, the deployment stays Ready, and the console shows
+      # nothing. Failing here stops the pod in Init:Error instead, which is
+      # visible from `oc get pods` and which the readiness checks already fail
+      # on.
+      #
+      # Every replica runs it, so the apply is create-then-update on conflict.
+      initContainers:
+        - name: register-console-plugin
+          image: {{ required "Plugin image must be specified!" .Values.plugin.image }}
+          imagePullPolicy: {{ .Values.plugin.imagePullPolicy }}
+          args:
+            - ensure-consoleplugin
+          env:
+            # The whole reason this is done at runtime: OLM templates nothing
+            # inside a cluster-scoped manifest, so a shipped ConsolePlugin has
+            # to name a namespace it cannot know. This one asks the pod.
+            - name: PLUGIN_POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          {{- if and (.Values.plugin.securityContext.enabled) (.Values.plugin.containerSecurityContext) }}
+          securityContext: {{ tpl (toYaml (omit .Values.plugin.containerSecurityContext "enabled")) $ | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.plugin.resources | nindent 12 }}
+          volumeMounts:
+            - name: consoleplugin
+              readOnly: true
+              mountPath: /etc/file-integrity-plugin
+      {{- end }}
       containers:
         - name: {{ template "file-integrity-console-plugin.name" . }}
           image: {{ required "Plugin image must be specified!" .Values.plugin.image }}
@@ -103,6 +149,13 @@ spec:
           secret:
             secretName: {{ template "file-integrity-console-plugin.certificateSecret" . }}
             defaultMode: 420
+        {{- if include "file-integrity-console-plugin.selfRegisters" . }}
+        # Mounted rather than read through the API, so the ServiceAccount needs
+        # no permission to see it.
+        - name: consoleplugin
+          configMap:
+            name: {{ include "file-integrity-console-plugin.consolePluginConfigMap" . }}
+        {{- end }}
         {{- if include "file-integrity-console-plugin.hasPolicyConfigMap" . }}
         - name: policy
           configMap:

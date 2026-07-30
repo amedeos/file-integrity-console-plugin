@@ -47,7 +47,7 @@ metadata:
     # leaves the console unable to fetch the plugin's assets. It is also the
     # namespace the File Integrity Operator itself runs in, which is why it is
     # the natural answer rather than merely a convenient one.
-    operatorframework.io/suggested-namespace: openshift-file-integrity
+    operatorframework.io/suggested-namespace: file-integrity-console-plugin
 spec:
   displayName: File Integrity Console Plugin
   description: |
@@ -72,11 +72,20 @@ spec:
 
     ## How it talks to the cluster
 
-    The plugin's own ServiceAccount has **no Role and no ClusterRole**.
-    Everything the backend does against the API server it does with the calling
-    user's token, resolving the caller with `SelfSubjectReview` and checking
-    rights with `SelfSubjectAccessReview`. A request arriving without a bearer
-    token is rejected; it is never served with the plugin's own credentials.
+    **The request-serving path has no authority of its own.** Everything the
+    backend does against the API server on behalf of a browsing user it does
+    with that user's token, resolving the caller with `SelfSubjectReview` and
+    checking rights with `SelfSubjectAccessReview`. A request arriving without a
+    bearer token is rejected; it is never served with the plugin's own
+    credentials.
+
+    Its ServiceAccount holds **no namespaced rule at all**. Cluster-wide it
+    holds **two, and they are about installing rather than about data**: it may
+    create a `ConsolePlugin`, and it may read and update the one named after
+    itself. That is how the plugin registers with the console, which it does at
+    startup rather than through a shipped manifest — an OLM bundle cannot state
+    the namespace it will be installed into, so the pod reads its own and fills
+    it in. Neither rule reaches anything belonging to anyone.
 
     ## Reading files from nodes
 
@@ -92,6 +101,31 @@ spec:
     builds no Kubernetes client at all. Set `PLUGIN_ENABLE_FILE_RETRIEVE` to
     `false` through the Subscription to do that.
 
+    ## Before you install
+
+    * **Install the [File Integrity Operator][fio] first.** This plugin displays
+      what that operator produces and scans nothing itself. On a cluster with no
+      `FileIntegrity` CRD the navigation entry stays hidden.
+    * **It installs into its own namespace,** `file-integrity-console-plugin`,
+      which the form offers by default and creates for you. It does not need to
+      sit beside the File Integrity Operator: it reads that operator's objects
+      through the browsing user's token, and where to look for them is a setting
+      of its own. Any other namespace works too — the plugin reads the one it
+      was installed into and registers with the console accordingly.
+    * **Enable the plugin when the form asks.** OperatorHub defaults the *Console
+      plugin* choice to **Disabled** for any catalogue it does not trust, which
+      includes the community one. Left that way, the operator runs and no menu
+      entry appears. To enable it after the fact:
+
+      ```
+      oc patch console.operator.openshift.io cluster --type=json \
+        -p '[{"op":"add","path":"/spec/plugins/-","value":"file-integrity-console-plugin"}]'
+      ```
+
+    Uninstalling leaves the cluster-scoped `ConsolePlugin` behind, because a
+    bundle cannot ship the Job that would remove it. Delete it by hand:
+    `oc delete consoleplugin file-integrity-console-plugin`.
+
     [fio]: https://github.com/openshift/file-integrity-operator
 
   keywords:
@@ -104,16 +138,27 @@ spec:
   maturity: alpha
 
   provider:
-    name: Amedeo Salvati
+    name: amedeos
     url: https://github.com/amedeos/file-integrity-console-plugin
 
+  # The handle rather than the legal name, and a forwarding alias rather than a
+  # personal address, for one reason: these fields are published in a public
+  # catalogue and shown in OperatorHub, so they are indexed and cannot be
+  # withdrawn from where they have already been copied. The handle is also what
+  # the `url` above and the fork that opens the submission point at, so it is
+  # the identity a reader can actually check.
+  #
+  # The address still has to be one someone reads: it is where a user or a
+  # reviewer writes when something breaks, possibly years from now.
   maintainers:
-    - name: Amedeo Salvati
-      email: amedeo@linux.com
+    - name: amedeos
+      email: cops.capable425@passmail.net
 
   links:
     - name: Source
       url: https://github.com/amedeos/file-integrity-console-plugin
+    - name: Documentation
+      url: https://github.com/amedeos/file-integrity-console-plugin#readme
     - name: File Integrity Operator
       url: https://github.com/openshift/file-integrity-operator
 
@@ -123,33 +168,36 @@ spec:
   # the mode is not describing a watch scope here. It is describing the only
   # thing that actually varies: **where the pod ends up**.
   #
-  # And that is fixed. The ConsolePlugin names the Service's namespace
-  # literally, because OLM fills nothing in inside a cluster-scoped manifest.
-  # Installed anywhere but `openshift-file-integrity`, the console cannot reach
-  # the backend. AllNamespaces would put the pod in `openshift-operators`;
-  # SingleNamespace and MultiNamespace let the pod's namespace and the watched
-  # one differ, which is the same mistake wearing a hat. OwnNamespace, plus the
-  # suggested-namespace annotation, is the only combination that lands it in
-  # the right place.
+  # It is no longer fixed — 0.2.0 made the pod read its own namespace and
+  # register for that one, so any namespace works. What is still worth choosing
+  # is the *default*, and AllNamespaces would not let us choose: it puts the pod
+  # in `openshift-operators`, shared with every other globally-installed
+  # operator, where a namespaced rule granted to something else for its own
+  # reasons is inherited by whatever else lives there. This plugin is built
+  # around holding no namespaced rule at all; landing it in a shared namespace
+  # gives that away for nothing. SingleNamespace and MultiNamespace let the
+  # pod's namespace and the watched one differ, which is meaningless here —
+  # this operator watches nothing.
   #
-  # Two observed facts, in that order, and neither was in any manifest:
+  # So: OwnNamespace, plus a suggested namespace of its own,
+  # `file-integrity-console-plugin`. Not an `openshift-` name, which is reserved
+  # for the cluster's own alongside `kube-` and refused to anyone who is not
+  # cluster-admin.
   #
-  #   1. `openshift-file-integrity` already has an OperatorGroup with
-  #      `targetNamespaces: ["openshift-file-integrity"]`, created when the
-  #      File Integrity Operator was installed. A CSV offering only the global
-  #      mode cannot enter it — "The OperatorGroup in the
-  #      openshift-file-integrity Namespace does not support the global
-  #      installation mode."
-  #   2. Merely *supporting* the other modes does not fix that, because the
-  #      console does not pick the workable one. It reduces over the supported
-  #      modes and prefers AllNamespaces whenever it is offered at all
-  #      (operator-hub-subscribe.tsx), then applies the suggested namespace to
-  #      that choice — reproducing the impossible combination by default.
+  # One observed fact, which is why this is spelled out rather than left to the
+  # obvious guess: the console does not pick the workable install mode. It
+  # reduces over the supported ones and prefers AllNamespaces whenever it is
+  # offered at all (operator-hub-subscribe.tsx), then applies the suggested
+  # namespace to that choice. Merely *supporting* the other modes would
+  # therefore change nothing about what a user gets by default.
   #
   # With the global mode withdrawn, the form falls to "A specific namespace on
-  # the cluster" and pre-selects *Operator recommended Namespace:
-  # openshift-file-integrity* (`useSuggestedNSForSingleInstallMode` starts
-  # true). One click, and it is the right one.
+  # the cluster" and pre-selects *Operator recommended Namespace*
+  # (`useSuggestedNSForSingleInstallMode` starts true), creating it. One click.
+  #
+  # Until 0.2.0 this block argued for `openshift-file-integrity` instead, and
+  # the argument was sound while a shipped ConsolePlugin had to name a namespace
+  # it could not know. That is worth knowing before rearranging it back.
   installModes:
     - type: OwnNamespace
       supported: true
