@@ -1,6 +1,13 @@
 **/node_modules
 **/dist
 **/.DS_Store
+
+# Staged copies of a bundle laid out the way community-operators-prod wants it,
+# assembled here so the tree can be read before it is copied into a fork. It is
+# generated from dist/bundle and belongs in that repository, not in this one —
+# committing it would be the second hand-written copy the generator exists to
+# prevent.
+/submission
 .devcontainer/dev.env
 integration-tests/.auth
 integration-tests/results

@@ -6,6 +6,25 @@ plugin:
   # PLUGIN_NAME is changed to match. Empty means the chart name.
   name: ""
   description: "File Integrity"
+  # How the ConsolePlugin object gets created.
+  #
+  #   manifest       the chart creates it, as it always has. Nothing in the
+  #                  installation is granted any RBAC.
+  #   initContainer  an init container creates it at startup, reading its own
+  #                  namespace from the downward API. Needs a ClusterRole with
+  #                  two rules on `consoleplugins` and nothing else.
+  #
+  # The OLM bundle is rendered with initContainer, for two reasons. The
+  # `operator-sdk bundle validate` that the community pipeline runs rejects
+  # ConsolePlugin as a bundle manifest — every release up to 1.39.2 does, and
+  # OLM itself accepts it, so this never shows on a cluster. And OLM templates
+  # nothing inside a cluster-scoped manifest, so a shipped ConsolePlugin has to
+  # state its Service's namespace literally; installed anywhere else, the
+  # console cannot reach the backend.
+  #
+  # Helm installs default to manifest and so keep needing no RBAC at all.
+  consolePlugin:
+    mode: manifest
   image: ""
   imagePullPolicy: IfNotPresent
   imagePullSecrets: []
