@@ -8,10 +8,13 @@ import {
   DropdownItem,
   DropdownList,
   MenuToggle,
-  Modal,
   Text,
   TextContent,
 } from '@patternfly/react-core';
+// Deliberately not from the index above — see the note in FileContentModal:
+// the SDK's rewrite of a bare import resolves `Modal` to PatternFly's preview
+// API, which ignores `title` and `actions` and renders no footer at all.
+import { Modal } from '@patternfly/react-core/dist/dynamic/components/Modal';
 import { k8sPatch } from '../lib/k8s';
 import { ANNOTATIONS, I18N_NS } from '../constants';
 import { FileIntegrityModel } from '../models';

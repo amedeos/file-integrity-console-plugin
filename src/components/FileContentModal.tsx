@@ -10,9 +10,18 @@ import {
   DescriptionListDescription,
   DescriptionListGroup,
   DescriptionListTerm,
-  Modal,
   Spinner,
 } from '@patternfly/react-core';
+// Deliberately not from the index above. The console SDK rewrites a bare
+// `@patternfly/react-core` import into a per-component path, choosing it by
+// globbing `dist/dynamic/**` and preferring the *deepest* module that exports
+// the name. In react-core 5.2.3 two do, and `next/components/Modal` — the
+// preview of what became PatternFly 6's API — is the deeper one. That Modal
+// has neither `title` nor `actions`: it spreads them onto the DOM node and
+// renders no header and no footer, which is why every dialog on this branch
+// came up with no buttons and nothing anywhere said so. The loader rewrites
+// the index import only, so an explicit path survives it.
+import { Modal } from '@patternfly/react-core/dist/dynamic/components/Modal';
 import { I18N_NS } from '../constants';
 import type { NodeFileResponse } from '../types';
 import { errorMessage } from '../lib/errors';
