@@ -304,6 +304,22 @@ Two things this buys that a cluster does not:
   `k8sPatchResource` *and* the short aliases — verified in 1.2.0 — so
   `src/lib/k8s.ts` is byte-identical on every branch even though it is one of
   the three files allowed to differ. Use the short spelling and leave it alone.
+- **The SDK rewrites a bare `@patternfly/react-core` import, and it can pick the
+  wrong component.** `ConsoleRemotePlugin` turns `import { X } from
+  '@patternfly/react-core'` into a per-component path, choosing it by globbing
+  every `dist/dynamic/**/package.json` and — for a name more than one of them
+  exports — preferring the **deepest** path. react-core 5.2.3 exports `Modal`
+  from both `components/Modal` and `next/components/Modal`, the preview of what
+  became PatternFly 6's API, and the preview is deeper. So every dialog on
+  `release-4.16` rendered with no header and no footer, `title` and `actions`
+  spelled onto the DOM node as attributes, until the two components imported
+  `@patternfly/react-core/dist/dynamic/components/Modal` outright — the
+  rewriter leaves a specific path alone, it rewrites the index import only.
+  The source reads correctly, so review and CI both see nothing; jsdom measures
+  every element as zero-sized, so no test can see it either. A browser on a
+  console of that generation is the only thing that can. 6.2.3 and 6.4.3 ship
+  no `dist/dynamic/next` at all, so the newer branches are not exposed —
+  checked by unpacking them.
 - **PatternFly pins to the floor of the branch's range, not to the template's
   caret.** The plugin ships no CSS of its own, so every class name it emits has
   to exist in the stylesheet the *console* loaded: `@patternfly/patternfly`

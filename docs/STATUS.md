@@ -789,63 +789,92 @@ Version 0.3.0 and not 0.2.1: where an operator installs by default is not a patc
 namespace by default, so the round trip *is* the verification that the baked-in namespace is gone.
 `PLUGIN_NAMESPACE` overrides it for a run somewhere unexpected.
 
-### Open defect: the re-initialise confirmation on 4.16 — 27 July 2026
+### Closed: every dialog on 4.16 came up without buttons — 30 July 2026
 
-Reported from `hack/lab/console.sh 0.1.0 4.16`, the first time that build had been loaded by a
-console since it was published. Clicking **Re-initialize baseline** on a node opens the
-confirmation, but its buttons are not usable. Everything else on that console worked.
+Reported on 27 July from `hack/lab/console.sh 0.1.0 4.16`, the first time that build had been
+loaded by a console since it was published: clicking **Re-initialize baseline** opened the
+confirmation, which showed its warning and then nothing below. Absent, not disabled. Deferred
+deliberately, and closed on 30 July by
+`fix/modal-resolves-to-the-preview-api` (#45) — two import lines.
 
-Deferred deliberately, not forgotten.
+It was never about `ReinitActions`. **Every dialog on the branch was affected**, and the cause is
+in our own build, not in the console.
 
-**The buttons are absent, not disabled** — the dialog shows its warning and body text and then
-nothing below. So this is not `isDisabled={submitting}` stuck true; the footer is not being
-rendered at all, and `ReinitActions.tsx` on this branch supplies it through PatternFly 5's
-`actions={[...]}` prop rather than a `ModalFooter` child.
-
-**"It works on 4.19 and 4.22" is not evidence about this.** Those branches carry `main`'s markup —
-PatternFly 6, with `ModalFooter` — because no component is in `release-4.19`'s declared delta. The
-`actions` spelling exists only on `release-4.16`, so the working consoles are running different
-code, not the same code somewhere else. Stating it as a control was wrong.
-
-The one comparison that does discriminate is on the 4.16 console itself: `FileContentModal.tsx` is
-the only other component using `actions={[...]}` there. If *View file* shows its Download and
-Close buttons, the fault is local to `ReinitActions`. If it does not, the `Modal` is ignoring
-`actions` and every dialog on the 4.16–4.18 branch is affected.
-
-**And the console shares PatternFly 4 with plugins, not 5.** Read off the running 4.16 console
-rather than inferred. Its `index.html` loads two PatternFly bundles:
+**What the browser said.** The discriminator recorded here in July was *View file* on the same
+console, and it showed the same thing: no `Close`. Inspecting the box was what broke it open:
 
 ```
-vendor-patternfly-4-shared~main-chunk-…js
-vendor-patternfly-5~main-chunk-…js
+pf-v5-c-modal-box pf-m-lg   data-ouia-component-type="PF5/ModalContent"
+  DIV.pf-v5-c-modal-box__close
+  DL.pf-v5-c-description-list …          ← our children, unwrapped
+  DIV.pf-v5-u-mt-md
 ```
 
-The shared scope registers `@patternfly/react-core` from a module that lives in the **4-shared**
-chunk, whose bundled `package.json` reads `"version":"4.278.0"`; `@patternfly/react-table` is
-there too, at 4.113.6. The PatternFly 5 bundle is the console's own. So a plugin importing
-`@patternfly/react-core` is offered **4.278.0**, while `release-4.16` compiles against `~5.2.2`.
+No footer, but also **no header and no `__body`** — our children hang directly off the box. And
+the box carried `title="/etc/fio-demo-changed.conf"` and `actions="[object Object]"` as **HTML
+attributes**. A component that spells props onto the DOM has not been given those props: it has
+swept them up as the rest and spread them. PatternFly 5.2.3's classic `ModalContent` destructures
+`title` and `actions` and can never do that. Its **preview** `ModalContent` — `next/components/`,
+the shape that became PatternFly 6's API — renders exactly `ModalBox → close button → children`
+and spreads the rest onto the box. That is the component, character for character.
 
-That makes the branch's whole PatternFly story need re-checking, and it is a correction to the
-table in `AGENTS.md`, which records 4.16–4.18 as PatternFly 5.2 — true of the stylesheet the
-console loads, not of the React components it shares. What has *not* been established is the
-mechanism between that and the missing footer. Both these are still open:
+**Why the preview one answered.** The console SDK rewrites imports. `ConsoleRemotePlugin` turns a
+bare
 
-- ~~whether webpack imposes the console's 4.278.0~~ **Asked and answered: it does not.** The
-  plugin *provides* `@patternfly/react-core` 5.2.3 and *consumes* it at `^5.2.3`, against the
-  console's 4.278.0, so a singleton share would have logged `Unsatisfied version … of shared
-  singleton module` in the browser. Reloading the 4.16 console with devtools open and filtering on
-  `patternfly` produced **nothing at all**. The plugin is therefore rendering with its own 5.2.3,
-  and the shared PatternFly 4 is context rather than cause. The leading hypothesis is dead;
-- what does render the dialog, then. The remaining discriminator is `FileContentModal` on the same
-  console — the only other component on the branch using `actions={[...]}` — and it has not been
-  looked at yet.
+```ts
+import { Modal } from '@patternfly/react-core';
+```
 
-Answer those before choosing a fix, because they point at different ones: build the branch against
-PatternFly 4, or write a footer that both majors render.
+into a per-component path, and picks that path in `utils/dynamic-module-parser.js` by globbing
+every `dist/dynamic/**/package.json` and, for a name exported by more than one, preferring the
+**deepest** path. react-core 5.2.3 ships two that export `Modal`:
 
-This is also why the defect belongs in the notes and not only in an issue. CI cannot see any of
-it — the component that renders comes from the console at runtime — and neither can jsdom, which
-measures every element as zero-sized, so no unit test can assert that a button is there to click.
+```
+dist/dynamic/components/Modal        → esm/components/Modal/index.js
+dist/dynamic/next/components/Modal   → esm/next/components/Modal/index.js     ← one segment deeper
+```
+
+The preview wins on depth. The tie-break's other rule — prefer non-`deprecated` paths — does not
+help, because in 5.2.3 the classic Modal is not under `deprecated`.
+
+**Two wrong turns worth keeping.** First: "crun fails before it reads the filesystem, so our tree
+cannot matter" — sound about crun, and applied to the wrong question. Second: `Modal` was searched
+for in the *console's* shared scope, on the strength of the July finding that console 4.16 shares
+PatternFly 4 — 4.278.0, read off the running console and recorded in `AGENTS.md`. That finding is
+real and stands; it was simply not this. The
+July conclusion that **the plugin renders with its own copy was right all along** — the module
+inside that copy was the wrong one.
+
+**What settled it, in order:** the package's own entry (`dist/esm/index.js` re-exports
+`./components`, `./layouts`, `./helpers`, `./styles` — never `./next`, so the source is correct);
+the published image, pulled straight from Quay's blob API and unpacked, where `ModalHeader`
+sits in a chunk of its own beside backdrop, button and modal-box; then a build of the branch in a
+worktree, whose chunk was named
+`vendors-…_dist_esm_next_components_Modal_index_js-chunk.js`. After the fix that chunk is
+`…_dist_esm_components_Modal_index_js-chunk.js`, and in the production bundle the string
+`ModalHeader` does not appear anywhere at all.
+
+**The fix** is to import the path the rewriter leaves alone. It rewrites the index import only —
+`isIndexImport = moduleSpecifier === dynamicModuleName` — so an explicit path survives:
+
+```ts
+import { Modal } from '@patternfly/react-core/dist/dynamic/components/Modal';
+```
+
+Both files are already in `release-4.16`'s declared delta, so nothing widened. Disabling dynamic
+modules in `webpack.config.ts` would have worked too and was rejected: that file is *not* in the
+delta, so a defect affecting one generation would have had to change `.github/branch-delta.json`
+on `main`.
+
+**Scope.** Only `Modal`, because `dist/dynamic/next` in 5.2.3 holds nothing else. Only
+`release-4.16`, because PatternFly 6.2.3 and 6.4.3 ship no `dist/dynamic/next` at all — checked by
+unpacking both, not inferred.
+
+**Nothing could have caught this.** The rewrite happens at build time, so the source reads
+correctly and review sees nothing; the branch's CI compiles the same source that produced the
+broken bundle; and jsdom measures every element as zero-sized, so no unit test can assert that a
+button is there to click. Verified the only way it can be — in a browser, on a 4.16 console, with
+`PLUGIN_IMAGE` pointing at the branch's Quay build.
 
 **Left over:** on a real 4.16 cluster, the SPDY exec fallback — read a file through the plugin, read
 it on the node, compare byte count and `sha256` before looking at the interface. The lab leftovers
@@ -853,6 +882,72 @@ are gone: the internal registry's BuildConfig, ImageStream, builds, the `fio-cur
 `fio-viewer` account were all removed on 26 July. The cluster's image registry itself is still
 `Managed` on `emptyDir`, deliberately untouched — 60 ImageStreams belonging to other work now
 depend on it, so turning it off is no longer a cleanup.
+
+### The release branches are level with `main` again — 30 July 2026
+
+Both had been left behind deliberately while the community submission was prepared, so both sat 19
+commits back and red on `branch-delta`. Merged forward in #43 and #44 — merge commits, and `main`
+is an ancestor of both tips again: `git merge-base --is-ancestor main release-4.16` succeeds, and
+so does its 4.19 twin. That is the property squashing a merge-forward destroys.
+
+The delta is back to what it should be. Nothing outside `src/` differs any more except the
+dependency pins and the chart's version:
+
+| | files differing from `main` | outside `src/` |
+|---|---|---|
+| `release-4.19` | 4 | `Chart.yaml`, `package.json`, `yarn.lock` |
+| `release-4.16` | 9 | the same three |
+
+Only the version conflicted, in `Chart.yaml` and `package.json`, and it was resolved in the
+branch's favour — no merge-forward has ever moved it, it is written once when the branch is cut.
+`main` had changed nothing else in either file, so `--ours` discarded nothing.
+
+**What that leaves open:** both branches now carry 0.3.x code under a version that says
+`0.1.0-ocp4.x`, and the image that version names on Quay is the July build — the one that still
+ships a `ConsolePlugin` manifest and installs beside the operator. Coherent for CI, which derives
+everything from the branch's own `package.json`, but **not submittable**. Cutting `0.3.1-ocp4.16`
+and `0.3.1-ocp4.19` is a release of its own, and it also restores `hack/lab/console.sh 0.3.1 4.16`
+as the ordinary way to look at a branch.
+
+### `Container image` is a lottery on GitHub's runners — 30 July 2026
+
+Five of ten runs on 30 July failed, always the same job, always in the first `RUN` of the first
+stage, in 13–17 seconds:
+
+```
+error running container: from /usr/bin/crun creating container for
+  [/bin/sh -c node .yarn/releases/yarn-4.14.1.cjs install --immutable]:
+  unknown version specified
+```
+
+crun rejecting the `ociVersion` podman wrote — podman newer than the crun beside it. The build
+context is irrelevant: nothing has been copied yet that could matter, and the same command in the
+same stage on the same base image succeeds elsewhere.
+
+It looks like the tree and is not. The clinching pair: `release-4.19`'s merge commit **passed** on
+its pull request and **failed** on the branch tip minutes later, and a fast-forward changes nothing
+about what is built. What differs is in `Set up job`:
+
+| | runner image | |
+|---|---|---|
+| failing | `ubuntu-24.04` **20260726.254.1** | |
+| passing | `ubuntu-24.04` **20260720.247.2** | |
+
+A pool mid-rollout, and which machine answers is a draw. Two things follow, both learned by getting
+them wrong first:
+
+- **`runs-on: ubuntu-24.04` fixes nothing.** The failing machines already are `ubuntu-24.04`;
+  GitHub offers no way to pin the image *build*. This was proposed here and would have cost a pull
+  request on `main` and two merge-forwards to change nothing.
+- **Three failures in a row do not prove the tree.** They did not: a fourth attempt on the same
+  commit went green. Distinguishing "always" from "often" needs the runner image, which is one line
+  in the log and settles it immediately.
+
+Left alone deliberately. Every candidate fix — installing a current crun, `--runtime runc`,
+`docker build` — is permanent work against a fault that is almost certainly temporary, and the
+last of them would stop the job doing the one thing it exists for, which is to check that *podman*
+digests the `Containerfile`. Re-run until it lands on an older image; revisit if it is still like
+this in a few days.
 
 ## Environment notes
 
