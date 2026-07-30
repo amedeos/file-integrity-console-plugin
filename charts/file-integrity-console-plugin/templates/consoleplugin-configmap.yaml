@@ -1,0 +1,20 @@
+{{- if include "file-integrity-console-plugin.selfRegisters" . }}
+# The ConsolePlugin the init container applies, carried as data rather than as
+# a manifest of its own.
+#
+# Two reasons it is a ConfigMap and not, say, arguments to the init container.
+# It is a kind OLM accepts in a bundle, which ConsolePlugin — for the version
+# of `operator-sdk bundle validate` the community pipeline runs — is not. And
+# mounting it means the pod needs no permission to read it, which keeps the
+# only rules the ServiceAccount holds the two it needs to write the object.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "file-integrity-console-plugin.consolePluginConfigMap" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "file-integrity-console-plugin.labels" . | nindent 4 }}
+data:
+  consoleplugin.yaml: |
+    {{- include "file-integrity-console-plugin.consolePluginObject" . | nindent 4 }}
+{{- end }}

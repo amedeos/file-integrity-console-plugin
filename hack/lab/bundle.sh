@@ -138,14 +138,15 @@ log "Removing any previous installation"
 PLUGINS_BEFORE=$(oc get console.operator.openshift.io cluster \
   -o jsonpath='{range .spec.plugins[*]}{@}{"\n"}{end}' 2>/dev/null |
   grep -v "^${PLUGIN_NAME}$" | sort || true)
-FIO_CSV=$(oc get csv -n "$NAMESPACE" \
+FIO_CSV=$(oc get csv -n "$FIO_NAMESPACE" \
   -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null |
   grep '^file-integrity-operator\.' | head -1 || true)
 
-# Every deletion below names its object. This namespace belongs to the File
-# Integrity Operator as much as to the plugin, so a sweep — `oc delete all`, a
-# label selector that happens to match, deleting the namespace — would take FIO
-# down as a side effect. Nothing here is allowed to be that convenient.
+# Every deletion below names its object. The plugin has a namespace of its own
+# since 0.2.1, so a sweep would no longer take the File Integrity Operator down
+# with it — but the discipline stays, because it is what makes the checks after
+# the teardown mean something, and because $NAMESPACE is overridable and may
+# well be somewhere shared.
 
 if [ -n "$(oc get secret -n "$NAMESPACE" -l "owner=helm,name=$PLUGIN_NAME" \
   -o name 2>/dev/null)" ]; then
@@ -194,6 +195,21 @@ leftovers() {
     out="$out subscription"
   oc get serviceaccount "$PLUGIN_NAME" -n "$NAMESPACE" >/dev/null 2>&1 &&
     out="$out serviceaccount"
+  # Cluster-scoped, and owned by a namespaced CSV — an ownerReference Kubernetes
+  # garbage collection will not follow, so removing these is OLM's own collector
+  # and nothing else. The one leak this script could not see is the one the
+  # self-registering plugin introduced.
+  #
+  # Found by who they name rather than by how OLM labels them: a binding that
+  # still grants to this ServiceAccount is a leak whatever it is called, and
+  # that reading cannot go stale the way a label spelling can. The ClusterRole
+  # is matched by owner, which is the weaker of the two — a role surviving
+  # without its binding grants nobody anything.
+  oc get clusterrolebinding -o jsonpath='{range .items[*]}{range .subjects[*]}{.kind}/{.namespace}/{.name}{"\n"}{end}{end}' 2>/dev/null |
+    grep -q "^ServiceAccount/${NAMESPACE}/${PLUGIN_NAME}$" &&
+    out="$out clusterrolebinding"
+  oc get clusterrole -o jsonpath='{range .items[*]}{.metadata.labels.olm\.owner}{"\n"}{end}' 2>/dev/null |
+    grep -q "^${PLUGIN_NAME}\." && out="$out clusterrole"
   oc get csv -n "$NAMESPACE" \
     -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null |
     grep -q "^${PLUGIN_NAME}\." && out="$out csv"
@@ -213,23 +229,37 @@ check "other consoles' plugins are untouched" "$PLUGINS_BEFORE" \
   "$(oc get console.operator.openshift.io cluster \
     -o jsonpath='{range .spec.plugins[*]}{@}{"\n"}{end}' 2>/dev/null | sort || true)"
 
-# This namespace is the File Integrity Operator's. Uninstalling the plugin must
-# be invisible to it — including its OperatorGroup, which is shared and which
-# nothing here may recreate.
+# Uninstalling the plugin must be invisible to the File Integrity Operator.
+# That is easier to guarantee since the plugin moved out of its namespace — but
+# easier is not the same as true, and the plugin still deletes a cluster-scoped
+# ConsolePlugin and patches console.operator, both of which reach outside
+# whatever namespace it lives in.
 if [ -n "$FIO_CSV" ]; then
   check "the File Integrity Operator is still installed" Succeeded \
-    "$(oc get csv "$FIO_CSV" -n "$NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null)"
+    "$(oc get csv "$FIO_CSV" -n "$FIO_NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null)"
   check "its deployment is still ready" \
-    "$(oc get deployment file-integrity-operator -n "$NAMESPACE" \
+    "$(oc get deployment file-integrity-operator -n "$FIO_NAMESPACE" \
       -o jsonpath='{.spec.replicas}' 2>/dev/null)" \
-    "$(oc get deployment file-integrity-operator -n "$NAMESPACE" \
+    "$(oc get deployment file-integrity-operator -n "$FIO_NAMESPACE" \
       -o jsonpath='{.status.readyReplicas}' 2>/dev/null)"
+  # Its own, in its own namespace, and nothing here has any business there.
+  check "its OperatorGroup is untouched" 1 \
+    "$(oc get operatorgroup -n "$FIO_NAMESPACE" -o name 2>/dev/null | wc -l)"
 else
-  skip "the File Integrity Operator is still installed" "not installed here"
+  skip "the File Integrity Operator is still installed" "not installed on this cluster"
 fi
 
-check "exactly one OperatorGroup" 1 \
-  "$(oc get operatorgroup -n "$NAMESPACE" -o name 2>/dev/null | wc -l)"
+# In the plugin's own namespace the OperatorGroup is one this script created,
+# so the question is not that it survived but that there is at most one: two in
+# a namespace make both invalid, and that is the state a careless re-run
+# produces. A namespace that does not exist yet has none, which is fine.
+if oc get namespace "$NAMESPACE" >/dev/null 2>&1; then
+  og_left=$(oc get operatorgroup -n "$NAMESPACE" -o name 2>/dev/null | wc -l)
+  check "no more than one OperatorGroup in $NAMESPACE" true \
+    "$([ "$og_left" -le 1 ] && echo true)"
+else
+  skip "no more than one OperatorGroup in $NAMESPACE" "the namespace does not exist yet"
+fi
 
 if [ "$CLEAN_ONLY" = true ]; then
   log "Clean only — stopping here"
@@ -327,6 +357,16 @@ spec:
 EOF
 
 wait_for "catalogue READY" 180 catalog_ready
+
+# Created rather than required: the plugin's namespace is its own and starts
+# out not existing, which is also what OLM does for a real install from the
+# suggested-namespace annotation. Never removed again, by this script or any
+# other — tearing down a namespace takes everything in it, and PLUGIN_NAMESPACE
+# may name somewhere with more in it than this. Delete it by hand.
+if ! oc get namespace "$NAMESPACE" >/dev/null 2>&1; then
+  info "namespace $NAMESPACE does not exist — creating it (nothing here removes it)"
+  oc create namespace "$NAMESPACE"
+fi
 
 # Two OperatorGroups in one namespace make both invalid, and one of them would
 # be the File Integrity Operator's. Creating one blindly is how an install
@@ -463,52 +503,69 @@ bound_roles() {
     ' "$NAMESPACE" "$SA"
 }
 
-# OLM grants one rule of its own, whatever the bundle declares: every CSV gets
-# an OperatorCondition, and the operator is allowed to update its own. Observed
-# on 4.22 — a Role named after the CSV, owned by the OperatorCondition and
-# labelled olm.managed, restricted by resourceNames to that one object. It is
-# not a way to reach anything else and cannot be declined, so it is tolerated
-# by shape rather than by name: widen it, or add a second rule, and this fails.
+# Exactly two things may be granted, and both are tolerated by *shape* rather
+# than by the name or the label of the role carrying them. Widen either, or add
+# a third, and this fails.
 #
-# `rules` reads back as the string "null" on a Role with none, which is neither
-# empty nor "[]" — the first version of this check called that a violation and
+#   1. Writing this plugin's own ConsolePlugin. That is ours, declared in the
+#      CSV's clusterPermissions, and is how the plugin registers itself with
+#      the console now that a bundle cannot ship the object.
+#   2. Updating its own OperatorCondition. That one is OLM's and cannot be
+#      declined: every CSV gets a condition and the operator is allowed to
+#      report through it. Observed on 4.22, restricted by resourceNames to that
+#      single object.
+#
+# Tolerating anything labelled olm.managed would have been easier and blind:
+# the Role carrying whatever the CSV's permissions declare wears that label too.
+#
+# `rules` reads back as the string "null" on a role with none, which is neither
+# empty nor "[]" — an earlier version of this check called that a violation and
 # reported our own empty Role as a grant.
 # shellcheck disable=SC2016
-rules_beyond_own_condition() {
+rules_beyond_the_allowed() {
   node -e '
-    const csv = process.argv[1];
+    const [csv, plugin] = process.argv.slice(1);
     let raw = "";
     process.stdin.on("data", (d) => (raw += d));
     process.stdin.on("end", () => {
       const text = raw.trim();
       const rules = !text || text === "null" ? [] : JSON.parse(text);
-      const isOwnCondition = (r) =>
-        (r.apiGroups || []).join() === "operators.coreos.com" &&
-        (r.resources || []).join() === "operatorconditions" &&
-        (r.resourceNames || []).join() === csv;
-      const bad = rules.filter((r) => !isOwnCondition(r));
+      const g = (r, k) => (r[k] || []).join();
+      const allowed = [
+        (r) =>
+          g(r, "apiGroups") === "operators.coreos.com" &&
+          g(r, "resources") === "operatorconditions" &&
+          g(r, "resourceNames") === csv,
+        (r) =>
+          g(r, "apiGroups") === "console.openshift.io" &&
+          g(r, "resources") === "consoleplugins" &&
+          g(r, "verbs") === "create",
+        (r) =>
+          g(r, "apiGroups") === "console.openshift.io" &&
+          g(r, "resources") === "consoleplugins" &&
+          g(r, "resourceNames") === plugin &&
+          g(r, "verbs") === "get,update,patch",
+      ];
+      const bad = rules.filter((r) => !allowed.some((ok) => ok(r)));
       if (bad.length) process.stdout.write(JSON.stringify(bad));
     });
-  ' "$1"
+  ' "$1" "$2"
 }
 
 GRANTED=""
-CLUSTER_ROLES=0
 while read -r kind scope name; do
   [ -z "$kind" ] && continue
   if [ "$kind" = ClusterRole ]; then
-    CLUSTER_ROLES=$((CLUSTER_ROLES + 1))
     rules=$(oc get clusterrole "$name" -o jsonpath='{.rules}' 2>/dev/null)
   else
     rules=$(oc get role "$name" -n "$scope" -o jsonpath='{.rules}' 2>/dev/null)
   fi
-  if [ -n "$(printf '%s' "$rules" | rules_beyond_own_condition "$CSV_NAME")" ]; then
+  if [ -n "$(printf '%s' "$rules" | rules_beyond_the_allowed "$CSV_NAME" "$PLUGIN_NAME")" ]; then
     GRANTED="$GRANTED $kind/$name"
   fi
 done < <(bound_roles)
 
-check "no ClusterRole is bound to the ServiceAccount" 0 "$CLUSTER_ROLES"
-check "no Role bound to it grants anything but its own OperatorCondition" \
+check "nothing bound to it grants more than registering the plugin" \
   "" "${GRANTED# }"
 
 # And the same question asked of the API server rather than of the manifests,
@@ -522,6 +579,32 @@ for verb_res in "get:secrets" "create:pods/exec" "list:pods"; do
     "$(oc auth can-i "$verb" "$res" \
       --as="system:serviceaccount:$NAMESPACE:$SA" -n "$NAMESPACE" 2>/dev/null || true)"
 done
+
+# The narrowing, asked of the API server too. It can make a ConsolePlugin — it
+# has to, that is how the plugin registers — and it must not be able to remove
+# one.
+check "SA can create consoleplugins" yes \
+  "$(oc auth can-i create consoleplugins \
+    --as="system:serviceaccount:$NAMESPACE:$SA" 2>/dev/null || true)"
+check "SA cannot delete consoleplugins" no \
+  "$(oc auth can-i delete consoleplugins \
+    --as="system:serviceaccount:$NAMESPACE:$SA" 2>/dev/null || true)"
+
+# Reading one is not ours to deny, and asserting otherwise asserted something
+# false about OpenShift: the release payload binds `console-extensions-reader`
+# to system:authenticated, granting get, list and watch on consoleplugins and
+# seven sibling kinds to every authenticated identity on the cluster. Our
+# ClusterRole carries no such verb — the rules read above are the whole of what
+# this bundle grants — so `oc auth can-i list` answers yes for a reason that
+# has nothing to do with us.
+#
+# Asked of an account with no relation to this plugin, so a yes says exactly
+# that: the grant is the cluster's. If it ever answers no, the reading becomes
+# ours to account for again and a "SA cannot list consoleplugins" check belongs
+# back here.
+check "reading consoleplugins is the cluster's grant, not this bundle's" yes \
+  "$(oc auth can-i list consoleplugins \
+    --as="system:serviceaccount:default:default" 2>/dev/null || true)"
 
 # --------------------------------------------------------------------------
 
