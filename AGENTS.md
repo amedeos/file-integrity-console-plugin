@@ -92,15 +92,21 @@ file it touches and buries real changes.
   was asserting something false about OpenShift; it now asks an unrelated
   account instead, so a *yes* says the grant is the cluster's. What is ours is
   `create`, which that same unrelated account is refused — that contrast is what
-  gives the check its content. Observed on 4.22 by reading the ClusterRole, not
-  inferred.
+  gives the check its content. Observed by reading the ClusterRole, not
+  inferred — on **4.22 and on 4.16 alike**, same eight kinds, same binding to
+  `system:authenticated`. Both generations we publish for, so this is a property
+  of OpenShift rather than of one release.
 
   **Under OLM a third rule does appear, and it is not ours.** Every CSV gets an
   `OperatorCondition`, and OLM creates a Role — named after the CSV, owned by
   that condition, labelled `olm.managed` — letting the operator `get`, `update`
   and `patch` **its own**, restricted by `resourceNames` to that single object.
-  It cannot be declined and this plugin never uses it. Observed on 4.22 by
-  installing and looking, after the check in `hack/lab/bundle.sh` reported it.
+  It cannot be declined and this plugin never uses it. Observed by installing
+  and looking, after the check in `hack/lab/bundle.sh` reported it — on 4.22
+  first, and on 4.16 in the same shape: the Role named after the CSV is the
+  OperatorCondition's, and the *other* namespaced Role, the one OLM creates from
+  the CSV's `permissions` entry, reads `rules: null`. That null is the empty rule
+  list arriving as it does, and it is what the CI check once mistook for a grant.
   All three are tolerated *by shape* — widen one, drop a `resourceNames`, or add
   a fourth, and the check fails. Do not relax it to "OLM-managed Roles are
   fine": the Role holding whatever the CSV's `permissions` declares carries the
