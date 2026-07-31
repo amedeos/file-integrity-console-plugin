@@ -13,16 +13,26 @@
  * serves consoles 4.16 to 4.18 — while 4.22 exports only the short aliases.
  * Using the short spelling therefore leaves this file identical on every
  * branch, despite its being one of the three that are allowed to differ.
+ *
+ * The Prometheus surface below is identical in all three published SDKs, which
+ * was checked by unpacking them rather than assumed: 1.2.0, 4.19.1 and 4.22.0
+ * all reach it from the package root through `lib-core` → `api/core-api`, and
+ * `PrometheusPollProps`, `PrometheusResponse` and the `PrometheusEndpoint` enum
+ * have the same shape in each. So adding it costs this file nothing in
+ * divergence.
  */
 export {
   k8sGet,
   k8sPatch,
   useK8sModel,
   useK8sWatchResource,
+  usePrometheusPoll,
+  PrometheusEndpoint,
   Timestamp,
 } from '@openshift-console/dynamic-plugin-sdk';
 
 export type {
   K8sModel,
   K8sResourceCommon,
+  PrometheusResponse,
 } from '@openshift-console/dynamic-plugin-sdk';
