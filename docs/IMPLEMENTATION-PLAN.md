@@ -267,9 +267,31 @@ Prerequisite: install FIO on the lab and generate real data.
 export OC="oc --server=https://api.ocp-lab.duckdns.org:6443 --token=… --insecure-skip-tls-verify"
 # 1. install FIO: Namespace openshift-file-integrity + OperatorGroup + Subscription
 #    (channel stable, source redhat-operators) and wait for CSV Succeeded
-# 2. create a minimal FileIntegrity CR (e.g. name: example-fileintegrity, empty nodeSelector)
+# 2. create a minimal FileIntegrity CR (e.g. name: example-fileintegrity) with a *concrete*
+#    nodeSelector — see below, an empty one never settles
 # 3. wait for PhaseActive and the FileIntegrityNodeStatus objects (AIDE init: several minutes)
 ```
+
+**`spec.nodeSelector` must select something; `{}` is not "all nodes", it is a restart loop.**
+Observed on FIO 1.4.0, console 4.16.55, three nodes labelled both `master` and `worker` and
+carrying no taint. With `nodeSelector: {}` the operator logs, every thirty seconds and for as long
+as you leave it:
+
+```
+FileIntegrity needed nodeSelector update
+FileIntegrity daemon configuration changed - pods restarted.
+```
+
+Thirty-four restarts in ten minutes. A `FileIntegrityNodeStatus` is written when a node's *first*
+AIDE scan completes, and no scan ever completes, so the namespace stays empty while the CR reports
+`Active` and the daemon pods report `Running` — the failure shows only as pods whose age never
+exceeds thirty seconds. `nodeSelector: {node-role.kubernetes.io/worker: ""}` stopped it on the
+spot, and all three statuses appeared ninety seconds later.
+
+The trigger is observed; the mechanism is not. The likely reading is that an empty map on the CR
+and the absent (`nil`) selector on the DaemonSet compare unequal, so the reconciler finds work to
+do on every pass — but that was not read in FIO's source, and it is written here as the inference
+it is.
 
 1. **Generate a real failure** — on a node, create a file under a monitored path
    (e.g. `/etc/testfile-fio`) through `oc debug node/control-plane-0`, then wait out the grace
