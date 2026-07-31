@@ -1010,6 +1010,66 @@ fall off.
 
 [sub2]: https://github.com/redhat-openshift-ecosystem/community-operators-prod/pull/10586
 
+### What a real 4.16 cluster said — 31 July 2026
+
+The lab was destroyed and rebuilt at **4.16.55**, three compact nodes, deliberately: the container
+lab answers whether a generation's *build* loads, and there are questions it cannot reach. The
+whole backend path is one of them — file retrieve goes through the `fio-backend` proxy alias
+declared in the `ConsolePlugin` and the backend builds its client from `rest.InClusterConfig()`,
+so neither exists outside a cluster. Nor does OLM. On this generation neither had ever run.
+
+Choosing 4.16 over 4.19 was choosing where the risk is: PatternFly 5, React 17, the compat router
+and SDK 1.2.0 are all here, and `release-4.19` differs from `main` in one file plus dependency
+pins.
+
+**FIO is 1.4.0 here too.** The `redhat-operators` catalogue serves the same version on 4.16 as on
+4.22, so the worry that an older operator might contradict the verified data model in
+`IMPLEMENTATION-PLAN.md` was unfounded. Getting there cost an hour first — see the note in that
+document on `nodeSelector: {}`, which is the shape of failure where every surface says the thing
+is working.
+
+**Everything the round was for:**
+
+| | |
+|---|---|
+| catalogue rendered by `opm` 4.22, served by OLM 4.16 | `READY` — the precaution was not needed |
+| CSV `file-integrity-console-plugin.v0.3.1-ocp4.16` | `Succeeded` |
+| init container | `exitCode 0`; it created the `ConsolePlugin`, which a bundle cannot ship |
+| `console.operator` | extended, the two plugins already there untouched |
+| nav item on **first** load | present, no reload |
+| node report | the planted `/etc/fio-demo-changed.conf` listed |
+| **file retrieve** | works — proxy, user's token, exec into the AIDE pod |
+| dialogs | buttons present, now under an OLM install from a release tag |
+| re-init | node back to `Succeeded` |
+
+Two of those deserve more than a row. **File retrieve had never executed on this generation at
+all**, and under it sit the deny list, `SelfSubjectAccessReview`, the user's token and the SPDY
+fallback. And the nav item appearing at first load is the `console.flag/hookProvider` decision
+being confirmed on the generation it was made for — `console.flag/model` is what lost the startup
+race here in the first place.
+
+**The `opm` precaution turned out to be unnecessary, which is worth recording so nobody prepares
+it again.** A catalogue rendered by a 4.22 `opm` was served to a 4.16 OLM without complaint. The
+escape hatch — `OPM=/path/to/opm-4.16 hack/lab/bundle.sh …` — remains in `need_tools` and was
+never used.
+
+**The RBAC invariant holds identically here**, read off the cluster rather than assumed:
+
+- `console-extensions-reader` grants `get`/`list`/`watch` on `consoleplugins` and seven sibling
+  kinds to `system:authenticated`, exactly as on 4.22. So an unrelated ServiceAccount may `list`
+  and is refused `create`; ours may `create` and is refused `delete`. That contrast is the whole
+  content of the check.
+- The ClusterRole from `clusterPermissions` carries **exactly the two rules**: `create` on
+  `consoleplugins`, and `get`/`update`/`patch` narrowed by `resourceNames` to our own object.
+- Two namespaced Roles, both `olm.managed`, neither ours to decline: the one named after the CSV
+  is the `OperatorCondition`'s, and the other — created from the CSV's `permissions` entry — reads
+  `rules: null`. That null *is* the empty rule list, and it is what the CI check once read as a
+  grant.
+
+**What it cost:** the 4.22 lab no longer exists. `main`'s bundle was verified there on 28 July and
+nothing about it has changed since, but if the community submission comes back asking for one, a
+4.22 cluster has to be rebuilt to answer it.
+
 ## Environment notes
 
 - The Go toolchain is **not preinstalled** and `/tmp` is a 1 GB tmpfs, too small for the module
