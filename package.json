@@ -1,6 +1,6 @@
 {
   "name": "file-integrity-console-plugin",
-  "version": "0.1.0-ocp4.19",
+  "version": "0.3.1-ocp4.19",
   "description": "OpenShift console plugin for the Red Hat File Integrity Operator",
   "private": true,
   "license": "GPL-3.0-or-later",
@@ -90,7 +90,7 @@
   },
   "consolePlugin": {
     "name": "file-integrity-console-plugin",
-    "version": "0.1.0-ocp4.19",
+    "version": "0.3.1-ocp4.19",
     "displayName": "File Integrity",
     "description": "Node-by-node view of Red Hat File Integrity Operator (AIDE) scan results.",
     "exposedModules": {
