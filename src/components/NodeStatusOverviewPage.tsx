@@ -372,7 +372,19 @@ const NodeStatusOverviewPage: React.FC = () => {
                     return (
                       <Tr key={s.metadata?.uid ?? node}>
                         <Td dataLabel={t('Node')}>
-                          {fiName && failed ? (
+                          {/*
+                            Every node whose FileIntegrity is known, not only
+                            the ones currently failing. Until the report page
+                            carried a history it had nothing to show for a
+                            healthy node, so the link was withheld; now the
+                            page's most useful panel is exactly the one a
+                            healthy node has — has this been quiet all week, or
+                            did it fail twice yesterday and recover? The name
+                            is still plain text when no FileIntegrity owns the
+                            status, because the route cannot be built without
+                            one.
+                          */}
+                          {fiName ? (
                             <Link
                               to={`/file-integrity/${fiName}/nodes/${node}`}
                             >

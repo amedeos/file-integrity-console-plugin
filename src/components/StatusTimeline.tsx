@@ -6,6 +6,32 @@ import { I18N_NS } from '../constants';
 import { CSS, TOKEN } from '../lib/styles';
 import type { Segment, Timespan } from '../lib/series';
 
+/** A colour and what it means, side by side, under the band. */
+const LegendItem: React.FC<{ colour: string; label: string }> = ({
+  colour,
+  label,
+}) => (
+  <Flex
+    spaceItems={{ default: 'spaceItemsSm' }}
+    alignItems={{ default: 'alignItemsCenter' }}
+    flexWrap={{ default: 'nowrap' }}
+  >
+    <FlexItem>
+      <span
+        aria-hidden="true"
+        style={{
+          display: 'inline-block',
+          width: '10px',
+          height: '10px',
+          borderRadius: '2px',
+          background: colour,
+        }}
+      />
+    </FlexItem>
+    <FlexItem>{label}</FlexItem>
+  </Flex>
+);
+
 /**
  * One node's integrity over time: a band, red where AIDE was reporting changes
  * and green where it was not.
@@ -14,6 +40,15 @@ import type { Segment, Timespan } from '../lib/series';
  * of rectangles, and `@patternfly/react-charts` would mean a new dependency
  * pinned three times across three PatternFly majors, with Victory underneath —
  * a cost this repository has already paid twice for less.
+ *
+ * The legend is not decoration and not optional. A status colour never carries
+ * meaning on its own — the first version of this band shipped without one, and
+ * a node that had been failing all day drew a single red bar that said nothing
+ * about what red was. Two swatches and two words are the whole fix.
+ *
+ * Each run also carries a `<title>`, which is the SVG element browsers surface
+ * as a tooltip. It costs nothing, needs no library and no hover state, and it
+ * is what turns "somewhere in there" into a pair of times.
  *
  * The band carries an `aria-label` saying in words what it shows. That is not
  * only for screen readers: jsdom measures every element as zero-sized, so the
@@ -56,6 +91,11 @@ export const StatusTimeline: React.FC<{
           count: failing.length,
         });
 
+  const range = (segment: Segment) =>
+    `${new Date(segment.from).toLocaleString()} — ${new Date(
+      segment.to,
+    ).toLocaleString()}`;
+
   return (
     <>
       <svg
@@ -80,7 +120,13 @@ export const StatusTimeline: React.FC<{
             y={0}
             height={24}
             fill={segment.failed ? TOKEN.fillDanger : TOKEN.fillSuccess}
-          />
+          >
+            <title>
+              {segment.failed
+                ? t('Changes reported, {{range}}', { range: range(segment) })
+                : t('No changes, {{range}}', { range: range(segment) })}
+            </title>
+          </rect>
         ))}
       </svg>
 
@@ -92,6 +138,18 @@ export const StatusTimeline: React.FC<{
           <Timestamp timestamp={new Date(from).toISOString()} />
         </FlexItem>
         <FlexItem>{t('now')}</FlexItem>
+      </Flex>
+
+      <Flex
+        spaceItems={{ default: 'spaceItemsLg' }}
+        className={`${CSS.marginTopSm} ${CSS.fontSizeSm} ${CSS.textSecondary}`}
+      >
+        <FlexItem>
+          <LegendItem colour={TOKEN.fillDanger} label={t('Changes reported')} />
+        </FlexItem>
+        <FlexItem>
+          <LegendItem colour={TOKEN.fillSuccess} label={t('No changes')} />
+        </FlexItem>
       </Flex>
 
       <p className={CSS.marginTopSm}>

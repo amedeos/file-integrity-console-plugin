@@ -148,6 +148,17 @@ file it touches and buries real changes.
   how it is known this is new behaviour rather than something always true.
   i18next falls back to `_other` when `_many` is missing, so removing them
   after regenerating costs nothing.
+
+  **It also leaves the English *value* set to the key it just invented, suffix
+  and all, and that one is invisible to every check that existed.** A plural
+  string is stored twice, as `…_one` and `…_other`; `yarn i18n` seeds both
+  English values with the whole key. The catalogues stay aligned, the types are
+  strings either way, and the console faithfully renders `Changes were being
+  reported during 1 period(s)._one` — observed in a browser on a released
+  build, and on a string that had been shipping that way since the re-init
+  dialog was written. **Write the singular and the plural out by hand after
+  regenerating**; the suffix names the CLDR category and belongs to the key
+  alone. CI now fails on any English value ending in one.
 - **The version is written in four places** — `version` and
   `consolePlugin.version` in `package.json`, `appVersion` and `version` in the
   chart — and a git tag is what names the released image. Keep them in step.
@@ -458,6 +469,23 @@ CI never runs and the gap simply sits there.
   user installs the operator. Re-pushing the tag alone against an empty queue
   built it immediately, which is the whole fix; the git object is annotated, so
   deleting and re-pushing preserves its message.
+
+  **A disabled trigger looks exactly the same, and it is the likelier cause of a
+  long silence.** Quay turns a build trigger off by itself, and from outside
+  nothing distinguishes that from a push that never arrived: no failed build, no
+  cancelled one, no entry at all. The tell is the *pattern* — the queue drops a
+  build when it is busy, so a missing build with an idle queue and no build for
+  a day is a trigger, not a queue. Two pushes in a row producing nothing is the
+  same signal. It is fixed in the Quay interface (*Builds* → *Build Triggers* →
+  re-enable) and cannot be seen through the API without credentials, so it is a
+  thing to ask the repository's owner rather than to diagnose. Observed on
+  1 August 2026, after the merge that should have built `main` and a branch push
+  before it both went unrecorded.
+
+  One consequence outlives the fix: **builds missed while the trigger was down
+  do not happen retroactively.** `main` and `latest` stayed a day old with
+  nothing on GitHub to suggest it. Re-run the trigger by hand for the ref that
+  was missed rather than inventing a commit to provoke it.
 - **A green `bundle` job does not predict the community pipeline, because the
   two run different `operator-sdk` versions.** Ours pins 1.42.3. The community
   hosted pipeline runs something older, and `operator-sdk bundle validate`
