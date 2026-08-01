@@ -1070,6 +1070,88 @@ never used.
 nothing about it has changed since, but if the community submission comes back asking for one, a
 4.22 cluster has to be rebuilt to answer it.
 
+### History, from the metrics FIO already exposes — 31 July 2026
+
+The plugin could say what changed and not whether it had happened before. The
+data for the second question turned out to exist, just not where a reader would
+look for it, and finding that out settled the design:
+
+- **The result ConfigMap is overwritten in place** — same `creationTimestamp`,
+  new `resourceVersion` — and *survives recovery*: a node back to `Succeeded`
+  still carries its stale `-failed` ConfigMap. So reading it by name would show
+  a resolved failure as current, which is why `lastResult.resultConfigMapName`
+  is the only correct way in.
+- **`FileIntegrityNodeStatus.results[]` is not a history.** It keeps the latest
+  result *per condition* — two entries. A name that invites the opposite reading.
+- **Prometheus is the only real history**, and it starts when scraping starts.
+
+Measured by planting files on a node, waiting for the failure and re-initialising
+— not read off the operator's source and assumed.
+
+**What the metrics carry**, and what they do not: `node_failed{node}` is a 0/1
+gauge, `node_status_total{node,condition}` counts transitions, and
+`reinit_total{by}` separates a re-init somebody asked for (`demand`) from the
+operator's own (`node`, `config`). Nothing anywhere counts files over time.
+
+Three facts decided more of the code than any preference did:
+
+- **`reinit_total` has no `node` label.** So that panel is cluster-wide and
+  belongs on the overview. Placement chosen by the data.
+- **A series that never happened does not exist**, and that is not zero.
+  `reinit_total` is absent on a cluster where nobody has re-initialised
+  anything, and rendering that as "no data" would tell a healthy cluster its
+  monitoring was broken. So exactly one query — `count(node_failed)`, filtered
+  on nothing — decides availability, and every other panel renders zero.
+- **`increase()` extrapolates.** It answers `1.0172744767338133` where a person
+  means 1. `round()` in the query is what makes it a count again.
+
+**Every query was run against a cluster before it was written down**, including
+`sum by (by) (...)`, where the label is spelled the same as a PromQL keyword.
+`src/lib/series.spec.ts` pins the exact strings, so editing one means running it
+against a cluster rather than merely type-checking it.
+
+**No chart library.** `@patternfly/react-charts` would be a new pin on three
+branches across three PatternFly majors with Victory underneath — the
+dependency-tree cost this repository has already paid twice. A 0/1 band is a row
+of rectangles and a sparkline is a polyline, so both are inline SVG. That also
+keeps the new components identical on `release-4.16`, where PatternFly 5 already
+forces four components to diverge.
+
+**The invariant is untouched.** Queries go through the console's own Prometheus
+proxy carrying the browsing user's identity, with `namespace` set so the console
+routes to its tenancy proxy rather than the cluster-wide one that would need
+`cluster-monitoring-view`. The backend is not involved and gained no rule.
+
+**The window selector brought a hazard a fixed window did not have.** Past the
+cluster's retention Prometheus does not refuse the range, it returns less of it
+— and a band that quietly starts three days in reads as three quiet days. So the
+panels compare where the data begins against what was asked for, measured back
+from the last sample rather than from the browser's clock, and say so.
+
+**`yarn i18n` no longer produces a tree CI accepts**, which this change found by
+running it: the parser now writes Italian a `_many` plural form English has no
+equivalent of, so the two locales stop being key-for-key aligned. The committed
+files carry none, so this is new. Noted in `AGENTS.md`; the fix is to delete
+them after regenerating, since i18next falls back to `_other`.
+
+**Still to verify, and none of it can be done from here:**
+
+1. That the tenancy proxy actually serves these series. If it does not, the
+   panels will report an error and the fix is one line — `QUERY_NAMESPACE` in
+   `src/hooks/useIntegrityMetrics.ts` — plus a README sentence saying the
+   feature then needs `cluster-monitoring-view`.
+2. The 30-day window on a cluster that does not retain 30 days, which is the
+   failure the selector introduced.
+3. The unavailable state, by removing the `openshift.io/cluster-monitoring`
+   label and putting it back. It is what most clusters show first.
+4. **Authorization**: a user without monitoring rights must see no data. The
+   container lab cannot show this — it runs every query as the one token given
+   to the bridge — so it needs a cluster and a deliberately under-privileged
+   user.
+
+`hack/lab/console.sh` now passes `BRIDGE_K8S_MODE_OFF_CLUSTER_THANOS`, so 1 to 3
+can be done against the 4.16 lab with a console of any generation.
+
 ## Environment notes
 
 - The Go toolchain is **not preinstalled** and `/tmp` is a 1 GB tmpfs, too small for the module

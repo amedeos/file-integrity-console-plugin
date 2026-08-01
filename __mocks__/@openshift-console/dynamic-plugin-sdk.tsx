@@ -26,3 +26,17 @@ export const k8sPatch = jest.fn(() => Promise.resolve({}));
 export const k8sGet = jest.fn(() => Promise.resolve({}));
 
 export const useK8sWatchResource = jest.fn(() => [[], true, undefined]);
+
+// The console resolves these at runtime too. The enum has to be a real value
+// because the hooks below pass its members, and the poll defaults to "loaded,
+// nothing there" — which is what a cluster with no monitoring answers, and so
+// the state a test gets unless it says otherwise.
+export const PrometheusEndpoint = {
+  LABEL: 'api/v1/label',
+  QUERY: 'api/v1/query',
+  QUERY_RANGE: 'api/v1/query_range',
+  RULES: 'api/v1/rules',
+  TARGETS: 'api/v1/targets',
+} as unknown as typeof SDK.PrometheusEndpoint;
+
+export const usePrometheusPoll = jest.fn(() => [undefined, true, undefined]);

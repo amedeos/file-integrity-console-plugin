@@ -55,6 +55,31 @@ export const LABELS = {
 } as const;
 
 /**
+ * The operator's own metrics (pkg/controller/metrics/metrics.go), read through
+ * the console's Prometheus proxy.
+ *
+ * `nodeFailed` is a gauge and carries a `node` label; it exists for every node
+ * the moment anything scrapes the operator, holding 0 while the node is
+ * healthy. That is what makes it — and only it — usable to tell "nobody is
+ * collecting these metrics" apart from "this node has never failed".
+ *
+ * `reinit` has no `node` label, only `by` (`demand` for one a person asked for,
+ * `node` and `config` for the operator's own), so anything built on it is
+ * cluster-wide. A counter that has never been incremented does not exist at
+ * all, so its absence means zero rather than unavailable.
+ */
+export const METRICS = {
+  nodeFailed: 'file_integrity_operator_node_failed',
+  nodeStatus: 'file_integrity_operator_node_status_total',
+  reinit: 'file_integrity_operator_reinit_total',
+} as const;
+
+/** The `by` label on {@link METRICS.reinit}. */
+export const REINIT_CAUSES = ['demand', 'node', 'config'] as const;
+
+export type ReinitCause = (typeof REINIT_CAUSES)[number];
+
+/**
  * The operator replaces an oversized report with this sentence
  * (cmd/manager/logcollector_util.go). We surface it as "truncated"
  * rather than trying to parse it.
