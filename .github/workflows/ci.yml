@@ -256,6 +256,47 @@ jobs:
           console.log(`${en.length} keys, en and it agree`);
           EOF
 
+      # A plural string is stored under two keys, `…_one` and `…_other`, and
+      # `yarn i18n` seeds each English value with the key it just invented —
+      # suffix included. Nothing downstream objects: the catalogues stay
+      # aligned, the types are strings either way, and the console renders
+      # exactly what the file says, which is how "…during 1 period(s)._one"
+      # reached a screenshot of a released build.
+      #
+      # The suffix is a CLDR plural category and belongs to the key alone. An
+      # English value that ends in one is therefore never a sentence somebody
+      # wrote; it is the generator's placeholder left in place.
+      - name: No plural suffix left in an English string
+        run: |
+          node - <<'EOF'
+          const fs = require('fs');
+          const en = JSON.parse(
+            fs.readFileSync(
+              'locales/en/plugin__file-integrity-console-plugin.json',
+              'utf8',
+            ),
+          );
+          const CATEGORIES = /_(zero|one|two|few|many|other)$/;
+          const raw = Object.entries(en).filter(([, value]) =>
+            CATEGORIES.test(value),
+          );
+          if (raw.length) {
+            console.error(
+              'These English strings end in a CLDR plural category, so they ' +
+                'are the generator’s placeholder rather than text:',
+            );
+            raw.forEach(([key, value]) => console.error(`  ${key}\n    ${value}`));
+            console.error(
+              '\nWrite the singular and the plural out. The suffix names the ' +
+                'category and stays on the key.',
+            );
+            process.exit(1);
+          }
+          console.log(
+            `${Object.keys(en).length} English strings, none left as a key`,
+          );
+          EOF
+
       # src/lib/styles.ts is a table of strings that either match the stylesheet
       # the console loaded or do nothing at all — nothing type-checks them, and
       # a wrong one costs no error, no warning and no visible failure beyond a

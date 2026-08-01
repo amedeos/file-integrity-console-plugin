@@ -148,6 +148,17 @@ file it touches and buries real changes.
   how it is known this is new behaviour rather than something always true.
   i18next falls back to `_other` when `_many` is missing, so removing them
   after regenerating costs nothing.
+
+  **It also leaves the English *value* set to the key it just invented, suffix
+  and all, and that one is invisible to every check that existed.** A plural
+  string is stored twice, as `…_one` and `…_other`; `yarn i18n` seeds both
+  English values with the whole key. The catalogues stay aligned, the types are
+  strings either way, and the console faithfully renders `Changes were being
+  reported during 1 period(s)._one` — observed in a browser on a released
+  build, and on a string that had been shipping that way since the re-init
+  dialog was written. **Write the singular and the plural out by hand after
+  regenerating**; the suffix names the CLDR category and belongs to the key
+  alone. CI now fails on any English value ending in one.
 - **The version is written in four places** — `version` and
   `consolePlugin.version` in `package.json`, `appVersion` and `version` in the
   chart — and a git tag is what names the released image. Keep them in step.
