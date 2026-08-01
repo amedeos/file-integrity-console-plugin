@@ -58,6 +58,32 @@ describe('StatusTimeline', () => {
     expect(screen.getByText(/Entered the failed state/)).toBeVisible();
   });
 
+  it('says what the two colours mean, so the band does not rely on colour', () => {
+    // A node failing all window draws one red bar and nothing else. Without
+    // these two words there is no way to know what red was.
+    render(
+      <StatusTimeline segments={segments(true)} failures={1} timespan="24h" />,
+    );
+
+    expect(screen.getByText('Changes reported')).toBeVisible();
+    expect(screen.getByText('No changes')).toBeVisible();
+  });
+
+  it('names the period each run covers, for the browser to show on hover', () => {
+    render(
+      <StatusTimeline
+        segments={segments(false, true)}
+        failures={1}
+        timespan="24h"
+      />,
+    );
+
+    // An SVG <title> is what a browser turns into a tooltip. Testing Library
+    // exposes it by its own role, which is the one thing here jsdom can judge.
+    expect(screen.getByText(/^Changes reported, /)).toBeInTheDocument();
+    expect(screen.getByText(/^No changes, /)).toBeInTheDocument();
+  });
+
   it('does not claim a failure count of zero', () => {
     render(
       <StatusTimeline segments={segments(false)} failures={0} timespan="24h" />,
