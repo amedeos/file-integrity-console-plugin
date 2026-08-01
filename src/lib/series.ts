@@ -190,6 +190,49 @@ export interface Segment {
 }
 
 /**
+ * A count series as SVG polyline points, drawn as **steps** rather than as a
+ * line between sample centres.
+ *
+ * The values are counts of nodes, and a count does not slide from two to three:
+ * it was two until a scrape said otherwise. Joining the points diagonally draws
+ * a change that never happened and, worse, puts the transition at the wrong
+ * time — halfway between the two scrapes instead of at the second one. So each
+ * sample holds its value until the next, and the line turns vertically.
+ *
+ * `peak` is the top of the scale, passed in rather than derived here because
+ * the caller also has to label it. Zero or negative would divide by nothing, so
+ * it is floored at one — a series of all zeroes then draws flat along the
+ * bottom, which is the truth.
+ *
+ * Returns an empty string when there is nothing to draw, which callers check
+ * before rendering an axis around it.
+ */
+export const stepPoints = (
+  samples: Sample[],
+  plot: { width: number; height: number; peak: number },
+): string => {
+  const from = samples.at(0)?.t;
+  const to = samples.at(-1)?.t;
+  if (from === undefined || to === undefined || to <= from) {
+    return '';
+  }
+  const span = to - from;
+  const peak = Math.max(plot.peak, 1);
+  const points: string[] = [];
+  let previousY: number | undefined;
+  samples.forEach((sample) => {
+    const x = ((sample.t - from) / span) * plot.width;
+    const y = plot.height - (sample.value / peak) * plot.height;
+    if (previousY !== undefined && previousY !== y) {
+      points.push(`${x.toFixed(2)},${previousY.toFixed(2)}`);
+    }
+    points.push(`${x.toFixed(2)},${y.toFixed(2)}`);
+    previousY = y;
+  });
+  return points.join(' ');
+};
+
+/**
  * Collapses samples into runs, which is what the strip draws.
  *
  * A segment ends one step after its last sample, so the final run covers the
