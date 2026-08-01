@@ -140,6 +140,14 @@ file it touches and buries real changes.
   See [Supporting more than one console generation](#supporting-more-than-one-console-generation).
 - **`locales/en` and `locales/it` stay key-for-key aligned.** A string added to
   one and not the other renders as a raw key. CI checks this.
+
+  **`yarn i18n` now breaks that alignment by itself, and the fix is to delete
+  what it added.** For a plural string it writes Italian a `_many` form, which
+  is a CLDR category Italian has and English does not — so `it` gains keys `en`
+  can never have and the check fails. The committed files carry none, which is
+  how it is known this is new behaviour rather than something always true.
+  i18next falls back to `_other` when `_many` is missing, so removing them
+  after regenerating costs nothing.
 - **The version is written in four places** — `version` and
   `consolePlugin.version` in `package.json`, `appVersion` and `version` in the
   chart — and a git tag is what names the released image. Keep them in step.
