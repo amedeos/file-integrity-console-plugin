@@ -19,6 +19,22 @@
 # underscores. Without this the only way to look at a fix before publishing it
 # was to run the two podman commands underneath this script by hand.
 #
+# BRIDGE_TOKEN names the identity the console browses as, in place of whoever
+# `oc` is logged in as. The bridge makes every request — the API server and the
+# Prometheus proxy alike — with this one token, which is normally the thing this
+# script cannot do anything about; given a narrow one it becomes the way to see
+# what the plugin shows a user who is not an administrator:
+#
+#   oc create serviceaccount fio-reader -n default
+#   oc adm policy add-cluster-role-to-user view -z fio-reader
+#   BRIDGE_TOKEN=$(oc create token fio-reader -n default --duration=4h) \
+#     hack/lab/console.sh 4.16
+#
+# `oc` still has to be logged in as someone who can read the API server's
+# address and the Thanos route. That does not weaken the test: those are two
+# addresses, read once before any container starts, and no request the console
+# makes carries that identity.
+#
 # What this does NOT test: OLM. The plugin is loaded through BRIDGE_PLUGINS,
 # which bypasses the ConsolePlugin resource, the CSV, the Subscription and the
 # catalogue entirely — use hack/lab/bundle.sh for that, against a cluster of
@@ -91,8 +107,13 @@ require_podman
 setup_containers_policy
 POLICY=(${PODMAN_POLICY_ARGS[@]+"${PODMAN_POLICY_ARGS[@]}"})
 
-TOKEN=$(oc whoami --show-token 2>/dev/null) ||
-  die "could not read a bearer token — the console needs one to reach the API server"
+if [ -n "${BRIDGE_TOKEN:-}" ]; then
+  TOKEN=$BRIDGE_TOKEN
+  info "browsing as BRIDGE_TOKEN, not as $(oc whoami 2>/dev/null || echo 'the logged-in user')"
+else
+  TOKEN=$(oc whoami --show-token 2>/dev/null) ||
+    die "could not read a bearer token — the console needs one to reach the API server"
+fi
 SERVER=$(oc whoami --show-server)
 
 # The console proxies Prometheus itself, and running off-cluster it cannot find
@@ -102,8 +123,9 @@ SERVER=$(oc whoami --show-server)
 #
 # Everything else here still works without it, so this warns rather than dies:
 # a cluster with no monitoring route is a fine place to check that a build
-# loads. Note that the bridge queries with the single token below, so what this
-# cannot show is authorization — every query runs as whoever ran this script.
+# loads. Every query runs as the one token the bridge was started with, which
+# is what BRIDGE_TOKEN above turns from a limitation into the way to exercise
+# authorization.
 THANOS=$(oc get route thanos-querier -n openshift-monitoring \
   -o jsonpath='https://{.spec.host}' 2>/dev/null) || THANOS=
 [ -n "$THANOS" ] ||
