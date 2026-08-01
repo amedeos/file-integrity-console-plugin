@@ -36,11 +36,21 @@ import {
   useFileIntegrities,
   useNodeStatuses,
 } from '../hooks/useFileIntegrityData';
+import {
+  useFailingNodesHistory,
+  useMetricsAvailability,
+  useReinitCounts,
+} from '../hooks/useIntegrityMetrics';
 import { isNodeHeldOff, isNodeReinitializing } from '../lib/reinit';
 import { errorMessage } from '../lib/errors';
 import { CSS, TOKEN } from '../lib/styles';
+import type { Timespan } from '../lib/series';
 import { ConditionLabel } from './ConditionLabel';
+import { FailingNodesSparkline } from './FailingNodesSparkline';
+import { MetricsUnavailable } from './MetricsUnavailable';
 import { ReinitBulkActions } from './ReinitActions';
+import { ReinitSummary } from './ReinitSummary';
+import { TimespanSelect } from './TimespanSelect';
 
 type Filter = 'All' | NodeCondition;
 
@@ -94,6 +104,16 @@ const NodeStatusOverviewPage: React.FC = () => {
 
   const [search, setSearch] = React.useState('');
   const [filter, setFilter] = React.useState<Filter>('All');
+
+  // One window for both history panels: they answer the same question about
+  // the same period, and two selectors disagreeing would be a puzzle rather
+  // than a feature.
+  const [timespan, setTimespan] = React.useState<Timespan>('24h');
+  const availability = useMetricsAvailability();
+  const failingNodes = useFailingNodesHistory(timespan);
+  const reinits = useReinitCounts(timespan);
+  const historyError =
+    availability.error ?? failingNodes.error ?? reinits.error;
 
   const counts = React.useMemo(() => {
     const acc = { Succeeded: 0, Failed: 0, Errored: 0, Unknown: 0 };
@@ -196,6 +216,78 @@ const NodeStatusOverviewPage: React.FC = () => {
               />
               <CountCard title={t('No result yet')} count={counts.Unknown} />
             </Gallery>
+          </PageSection>
+
+          <PageSection>
+            <Flex
+              justifyContent={{ default: 'justifyContentSpaceBetween' }}
+              alignItems={{ default: 'alignItemsCenter' }}
+              className={CSS.marginBottomMd}
+            >
+              <FlexItem>
+                <Title headingLevel="h2" size="lg">
+                  {t('History')}
+                </Title>
+              </FlexItem>
+              <FlexItem>
+                <TimespanSelect value={timespan} onChange={setTimespan} />
+              </FlexItem>
+            </Flex>
+
+            {/*
+              The unavailable state is decided once for the section. Both
+              panels would otherwise complain separately about the same missing
+              prerequisite, which reads as two problems instead of one.
+            */}
+            {!availability.loaded ? (
+              <Bullseye>
+                <Spinner />
+              </Bullseye>
+            ) : historyError ? (
+              <Alert
+                variant="warning"
+                isInline
+                title={t('Could not read the history')}
+              >
+                {errorMessage(historyError)}
+              </Alert>
+            ) : !availability.scraped ? (
+              <MetricsUnavailable />
+            ) : (
+              <Gallery hasGutter minWidths={{ default: '420px' }}>
+                <Card>
+                  <CardTitle>{t('Nodes reporting changes')}</CardTitle>
+                  <CardBody>
+                    {!failingNodes.loaded ? (
+                      <Bullseye>
+                        <Spinner />
+                      </Bullseye>
+                    ) : (
+                      <FailingNodesSparkline
+                        samples={failingNodes.samples}
+                        beginsAt={failingNodes.beginsAt}
+                        timespan={timespan}
+                      />
+                    )}
+                  </CardBody>
+                </Card>
+                <Card>
+                  <CardTitle>{t('Baseline re-initializations')}</CardTitle>
+                  <CardBody>
+                    {!reinits.loaded ? (
+                      <Bullseye>
+                        <Spinner />
+                      </Bullseye>
+                    ) : (
+                      <ReinitSummary
+                        counts={reinits.counts}
+                        total={reinits.total}
+                      />
+                    )}
+                  </CardBody>
+                </Card>
+              </Gallery>
+            )}
           </PageSection>
 
           <PageSection>

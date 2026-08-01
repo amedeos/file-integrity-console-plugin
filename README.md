@@ -96,8 +96,36 @@ the plugin, read the same file on the node, and compare the byte count and the
   the node itself. On by default, and gated by the browsing user's own
   `pods/exec` rights rather than by this switch. See
   [Security model](#security-model).
+- **History** — over 24 hours, 7 days or 30 days: a band showing when a node
+  was reporting changes, how many nodes were failing over time, and how many
+  baseline re-initialisations happened, separating the ones a person asked for
+  from the operator's own. See [History needs the operator's metrics to be
+  collected](#history-needs-the-operators-metrics-to-be-collected).
 
 The UI ships English and Italian locales.
+
+### History needs the operator's metrics to be collected
+
+The history panels read the File Integrity Operator's own metrics through the
+console's Prometheus proxy. **On a fresh cluster nobody collects them**: the
+operator ships a `ServiceMonitor`, but its namespace carries no
+`openshift.io/cluster-monitoring` label, so Prometheus does not scrape it. The
+plugin says so where the panels would be, rather than drawing an empty chart —
+but the remedy belongs to a cluster administrator:
+
+```sh
+oc label namespace openshift-file-integrity openshift.io/cluster-monitoring=true
+```
+
+The plugin holds no permission anywhere near that label and will not do it for
+you. Everything else keeps working without it; only the history is affected.
+
+Two limits worth knowing. **History begins when collection begins** — labelling
+the namespace does not recover the past, and choosing a window longer than the
+cluster's retention shows what there is and says where the data actually
+starts. And **there is no per-file history**: the operator overwrites a node's
+result each time and a successful scan leaves nothing behind, so "which files
+changed last Tuesday" is not somewhere to be read.
 
 ## Architecture
 

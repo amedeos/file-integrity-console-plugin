@@ -46,4 +46,19 @@ export const TOKEN = {
   statusSuccess: 'var(--pf-v5-global--success-color--100)',
   backgroundSecondary: 'var(--pf-v5-global--BackgroundColor--200)',
   spacerMd: 'var(--pf-v5-global--spacer--md)',
+  /**
+   * Fills for the history panels' SVG.
+   *
+   * On `main` these are the *icon* status tokens, deliberately not the text
+   * ones above: PatternFly 6 tunes the text colours for legibility against a
+   * background rather than for being the background. Version 5 draws no such
+   * distinction — it exposes the palette directly and both uses read the same
+   * entry — so here `fillDanger` and `statusDanger` are one colour, and that
+   * is the stylesheet's doing rather than an oversight. Keep the two names
+   * apart anyway: the components ask for the one they mean, and the day this
+   * branch is dropped nothing has to be renamed back.
+   */
+  fillDanger: 'var(--pf-v5-global--danger-color--100)',
+  fillSuccess: 'var(--pf-v5-global--success-color--100)',
+  borderSubtle: 'var(--pf-v5-global--BorderColor--100)',
 } as const;
