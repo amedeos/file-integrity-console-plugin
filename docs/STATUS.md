@@ -1152,6 +1152,67 @@ them after regenerating, since i18next falls back to `_other`.
 `hack/lab/console.sh` now passes `BRIDGE_K8S_MODE_OFF_CLUSTER_THANOS`, so 1 to 3
 can be done against the 4.16 lab with a console of any generation.
 
+## What a browser said about the history panels — 1 August 2026
+
+The panels were merged before anyone had seen them run, because Quay's build
+trigger had been **disabled** and no image existed to look at. That is worth
+recording on its own: a disabled trigger is indistinguishable from a push that
+never arrived — no failed build, no entry in the history, nothing. Two pushes
+produced nothing at all before it was noticed. It is a second way for this
+repository's publishing step to fail silently, beside the queue that drops what
+it cannot accept.
+
+Run at last against the 4.16 lab, with a console of the matching generation and
+`BRIDGE_K8S_MODE_OFF_CLUSTER_THANOS` pointing at the cluster's Thanos:
+
+**The tenancy proxy serves these series.** Item 1 of the list below is answered:
+with `QUERY_NAMESPACE` set to the operator's namespace the three panels returned
+data, so the plugin needs no `cluster-monitoring-view` and the least-privilege
+choice stands. What this does *not* answer is authorization — the bridge issues
+every query as the single token it was started with — so item 4 is untouched.
+
+Three defects, and the shape of them is the point: **not one could have been
+caught by anything in CI.**
+
+- **Plural strings rendered their own key.** The screen said `Changes were being
+  reported during 1 period(s)._one`. `yarn i18n` writes each English plural
+  value as the key it just invented, suffix included; the catalogues stay
+  aligned, the values are strings, and the console renders exactly what the file
+  says. One of the three had been shipping that way since the re-init dialog was
+  written. CI now fails on any English value ending in a CLDR plural category,
+  which is exact: a person never writes one.
+- **A node with nothing wrong had no link**, so the panel that is *most* useful
+  for a healthy node — has it been quiet all week, or did it fail twice
+  yesterday? — was reachable only from nodes that were currently failing. The
+  gate predated the history and nothing had made it wrong until now.
+- **The panels drew, and did not read.** A node failing all day produced one red
+  bar with no legend, so nothing said what red meant. The cluster sparkline drew
+  a constant series as a straight line pinned to the top of an unlabelled scale,
+  indistinguishable from a border, with `peak 2` sitting in the middle of the
+  time axis where a middle timestamp belongs, and the sentence explaining it all
+  present only as an `aria-label`. Fixed with a legend, a labelled vertical
+  scale, an area fill, per-run `<title>` tooltips, and the summary made visible.
+
+The sparkline is also stepped now rather than sloped: a count of nodes does not
+slide from two to three between scrapes, and a diagonal puts the change halfway
+between them, at a time nothing happened at. `stepPoints` in
+`src/lib/series.ts` does the arithmetic and is tested against numbers, which is
+the only place it can be tested — jsdom measures every element as zero-sized, so
+no test can see a chart, and that is precisely why all three defects reached a
+screenshot.
+
+**Still to verify:**
+
+1. ~~That the tenancy proxy actually serves these series.~~ It does.
+2. The 30-day window on a cluster that does not retain 30 days, which is the
+   failure the selector introduced.
+3. The unavailable state, by removing the `openshift.io/cluster-monitoring`
+   label and putting it back. It is what most clusters show first.
+4. **Authorization**: a user without monitoring rights must see no data. The
+   container lab cannot show this — it runs every query as the one token given
+   to the bridge — so it needs a cluster and a deliberately under-privileged
+   user.
+
 ## Environment notes
 
 - The Go toolchain is **not preinstalled** and `/tmp` is a 1 GB tmpfs, too small for the module
