@@ -36,4 +36,13 @@ export const TOKEN = {
   backgroundSecondary:
     'var(--pf-t--global--background--color--secondary--default)',
   spacerMd: 'var(--pf-t--global--spacer--md)',
+  /**
+   * Fills for the history panels' SVG. The *icon* status tokens, not the text
+   * ones above: an icon is a filled shape, which is what a bar is, while the
+   * text colours are tuned for legibility against a background rather than for
+   * being the background.
+   */
+  fillDanger: 'var(--pf-t--global--icon--color--status--danger--default)',
+  fillSuccess: 'var(--pf-t--global--icon--color--status--success--default)',
+  borderSubtle: 'var(--pf-t--global--border--color--nonstatus--gray--default)',
 } as const;

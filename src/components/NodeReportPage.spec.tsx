@@ -40,6 +40,35 @@ jest.mock('../hooks/useFileIntegrityData', () => ({
   useResultConfigMap: () => ({ configMap: mockConfigMap(), loaded: true }),
 }));
 
+// Mocked at the hook boundary for the same reason as the router above: what
+// supplies Prometheus data is a console-versioned API the page never sees.
+const mockAvailability = jest.fn<
+  { scraped: boolean; loaded: boolean; error?: unknown },
+  []
+>(() => ({ scraped: true, loaded: true }));
+
+const mockNodeHistory = jest.fn<
+  {
+    samples: never[];
+    segments: never[];
+    beginsAt?: number;
+    failures: number;
+    loaded: boolean;
+    error?: unknown;
+  },
+  []
+>(() => ({
+  samples: [],
+  segments: [],
+  failures: 0,
+  loaded: true,
+}));
+
+jest.mock('../hooks/useIntegrityMetrics', () => ({
+  useMetricsAvailability: () => mockAvailability(),
+  useNodeFailureHistory: () => mockNodeHistory(),
+}));
+
 const configMapWith = (integritylog: string): ResultConfigMap => ({
   metadata: { name: 'aide-example-node-0-failed', annotations: {} },
   data: { integritylog },
@@ -117,5 +146,61 @@ describe('NodeReportPage raw report section', () => {
     });
     await user.click(rawToggle());
     expect(rawToggle()).toHaveAttribute('aria-expanded', 'false');
+  });
+});
+
+describe('NodeReportPage history card', () => {
+  beforeEach(() => {
+    mockConfigMap.mockReturnValue(configMapWith(PARSEABLE_REPORT));
+    mockAvailability.mockReturnValue({ scraped: true, loaded: true });
+    mockNodeHistory.mockReturnValue({
+      samples: [],
+      segments: [],
+      failures: 0,
+      loaded: true,
+    });
+  });
+
+  // Awaited rather than asserted synchronously: the report underneath decodes
+  // and parses in an effect, and a synchronous assertion returns before that
+  // settles, which React reports as an update outside act().
+  it('is there whatever the node is currently doing', async () => {
+    render(<NodeReportPage />);
+
+    expect(await screen.findByText('Integrity over time')).toBeVisible();
+  });
+
+  it('offers the three windows', async () => {
+    render(<NodeReportPage />);
+
+    for (const window of ['24 hours', '7 days', '30 days']) {
+      expect(await screen.findByRole('button', { name: window })).toBeVisible();
+    }
+  });
+
+  it('explains itself when nothing is collecting the metrics', async () => {
+    // The state a cluster is in before anyone labels the operator's namespace,
+    // which is to say the state most people meet first.
+    mockAvailability.mockReturnValue({ scraped: false, loaded: true });
+
+    render(<NodeReportPage />);
+
+    expect(
+      await screen.findByText('No history is being recorded'),
+    ).toBeVisible();
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+  });
+
+  it('reports a failed query as a warning rather than as no history', async () => {
+    mockAvailability.mockReturnValue({
+      scraped: true,
+      loaded: true,
+      error: new Error('forbidden'),
+    });
+
+    render(<NodeReportPage />);
+
+    expect(await screen.findByText('Could not read the history')).toBeVisible();
+    expect(screen.queryByText('No history is being recorded')).toBeNull();
   });
 });
