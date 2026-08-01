@@ -24,3 +24,10 @@ install-state.gz
 !.yarn/releases
 !.yarn/sdks
 !.yarn/versions
+
+# An agent's per-machine tool permissions. Nothing about this repository: it
+# records which shell commands one person's assistant may run without asking,
+# and it arrived here because a `git add -A` swept it up. The shared form,
+# .claude/settings.json, is not excluded — that one would be a decision about
+# the project rather than about a laptop.
+.claude/settings.local.json
