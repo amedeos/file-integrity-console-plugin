@@ -8,6 +8,7 @@ import {
   Bullseye,
   Card,
   CardBody,
+  CardTitle,
   CodeBlock,
   CodeBlockCode,
   Divider,
@@ -32,10 +33,18 @@ import { countsMatch, parseAideReport } from '../lib/aide-parser';
 import { isNodeHeldOff, isNodeReinitializing } from '../lib/reinit';
 import { errorMessage } from '../lib/errors';
 import { CSS } from '../lib/styles';
+import {
+  useMetricsAvailability,
+  useNodeFailureHistory,
+} from '../hooks/useIntegrityMetrics';
+import type { Timespan } from '../lib/series';
 import { ConditionLabel } from './ConditionLabel';
 import { AideReportTable } from './AideReportTable';
 import { FileContentModal } from './FileContentModal';
+import { MetricsUnavailable } from './MetricsUnavailable';
 import { ReinitNodeButton } from './ReinitActions';
+import { StatusTimeline } from './StatusTimeline';
+import { TimespanSelect } from './TimespanSelect';
 
 const RawReport: React.FC<{ text: string }> = ({ text }) => (
   <CodeBlock>
@@ -55,6 +64,11 @@ const NodeReportPage: React.FC = () => {
 
   const [fis, fisLoaded] = useFileIntegrities();
   const [statuses, statusesLoaded] = useNodeStatuses();
+
+  const [timespan, setTimespan] = React.useState<Timespan>('24h');
+  const availability = useMetricsAvailability();
+  const history = useNodeFailureHistory(nodeName, timespan);
+  const historyError = availability.error ?? history.error;
 
   const fi = fis.find((f) => f.metadata?.name === fiName);
   const status = statuses.find((s) => s.nodeName === nodeName);
@@ -186,6 +200,52 @@ const NodeReportPage: React.FC = () => {
       </PageSection>
 
       <Divider />
+
+      {/*
+        Above the report rather than below it, and outside the ladder that
+        renders the report: the history is worth reading precisely when the
+        node is currently fine, which is the case where everything below this
+        collapses into "no changes detected".
+      */}
+      <PageSection>
+        <Card>
+          <CardTitle>
+            <Flex
+              justifyContent={{ default: 'justifyContentSpaceBetween' }}
+              alignItems={{ default: 'alignItemsCenter' }}
+            >
+              <FlexItem>{t('Integrity over time')}</FlexItem>
+              <FlexItem>
+                <TimespanSelect value={timespan} onChange={setTimespan} />
+              </FlexItem>
+            </Flex>
+          </CardTitle>
+          <CardBody>
+            {!availability.loaded || !history.loaded ? (
+              <Bullseye>
+                <Spinner />
+              </Bullseye>
+            ) : historyError ? (
+              <Alert
+                variant="warning"
+                isInline
+                title={t('Could not read the history')}
+              >
+                {errorMessage(historyError)}
+              </Alert>
+            ) : !availability.scraped ? (
+              <MetricsUnavailable />
+            ) : (
+              <StatusTimeline
+                segments={history.segments}
+                beginsAt={history.beginsAt}
+                failures={history.failures}
+                timespan={timespan}
+              />
+            )}
+          </CardBody>
+        </Card>
+      </PageSection>
 
       <PageSection>
         {!loaded ? (

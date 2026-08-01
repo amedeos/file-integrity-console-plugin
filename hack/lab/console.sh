@@ -95,6 +95,20 @@ TOKEN=$(oc whoami --show-token 2>/dev/null) ||
   die "could not read a bearer token — the console needs one to reach the API server"
 SERVER=$(oc whoami --show-server)
 
+# The console proxies Prometheus itself, and running off-cluster it cannot find
+# Thanos by its in-cluster service name, so it has to be told. Without this the
+# history panels ask a proxy that is not there and report an error rather than
+# an absence — which looks like a defect in the plugin.
+#
+# Everything else here still works without it, so this warns rather than dies:
+# a cluster with no monitoring route is a fine place to check that a build
+# loads. Note that the bridge queries with the single token below, so what this
+# cannot show is authorization — every query runs as whoever ran this script.
+THANOS=$(oc get route thanos-querier -n openshift-monitoring \
+  -o jsonpath='https://{.spec.host}' 2>/dev/null) || THANOS=
+[ -n "$THANOS" ] ||
+  warn "no thanos-querier route: the history panels will have nothing to query"
+
 for gen in "${GENERATIONS[@]}"; do
   slug=$(slug_for "$gen")
   net="fio-lab-$slug"
@@ -138,6 +152,7 @@ for gen in "${GENERATIONS[@]}"; do
     -e BRIDGE_K8S_AUTH=bearer-token \
     -e BRIDGE_K8S_MODE_OFF_CLUSTER_SKIP_VERIFY_TLS=true \
     -e BRIDGE_K8S_MODE_OFF_CLUSTER_ENDPOINT="$SERVER" \
+    -e BRIDGE_K8S_MODE_OFF_CLUSTER_THANOS="$THANOS" \
     -e BRIDGE_K8S_AUTH_BEARER_TOKEN="$TOKEN" \
     -e BRIDGE_USER_SETTINGS_LOCATION=localstorage \
     -e BRIDGE_I18N_NAMESPACES="plugin__$PLUGIN_NAME" \
