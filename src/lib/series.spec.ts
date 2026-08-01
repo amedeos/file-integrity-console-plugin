@@ -9,6 +9,7 @@ import {
   queries,
   rangeSamples,
   stepMillis,
+  stepPoints,
   timespanMillis,
   toSegments,
 } from './series';
@@ -240,5 +241,47 @@ describe('toSegments', () => {
     expect(toSegments(samples, step)).toEqual([
       { from: 0, to: 20, failed: true },
     ]);
+  });
+});
+
+describe('stepPoints', () => {
+  const plot = { width: 100, height: 10, peak: 2 };
+
+  it('draws nothing when there is nothing to draw', () => {
+    expect(stepPoints([], plot)).toBe('');
+    expect(stepPoints([{ t: 5, value: 1 }], plot)).toBe('');
+  });
+
+  it('holds each value until the next sample instead of sloping to it', () => {
+    const samples = [
+      { t: 0, value: 0 },
+      { t: 50, value: 2 },
+      { t: 100, value: 2 },
+    ];
+    // The corner at x=50 is what makes this a step: the value was 0 right up
+    // to that scrape, and a diagonal would put the change halfway between two
+    // scrapes, which is a time nothing happened at.
+    expect(stepPoints(samples, plot)).toBe(
+      '0.00,10.00 50.00,10.00 50.00,0.00 100.00,0.00',
+    );
+  });
+
+  it('emits one point per sample while the value holds', () => {
+    const samples = [
+      { t: 0, value: 2 },
+      { t: 50, value: 2 },
+      { t: 100, value: 2 },
+    ];
+    expect(stepPoints(samples, plot)).toBe('0.00,0.00 50.00,0.00 100.00,0.00');
+  });
+
+  it('draws a series of zeroes flat along the bottom rather than dividing by it', () => {
+    const samples = [
+      { t: 0, value: 0 },
+      { t: 100, value: 0 },
+    ];
+    expect(stepPoints(samples, { ...plot, peak: 0 })).toBe(
+      '0.00,10.00 100.00,10.00',
+    );
   });
 });
