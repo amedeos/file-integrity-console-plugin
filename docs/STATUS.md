@@ -1319,6 +1319,54 @@ after the **expression text**; the real catalogue then silently lacks a string
 the source plainly contains, and the console renders the key. Only the alignment
 check notices. The interpolation is called `fioNamespace` for that reason.
 
+### A wider window that began later — 2 August 2026
+
+Looked at on the published `release-4.16` image, an hour after the merge. The
+band was right; the sentence underneath it was not, and the way it was wrong is
+worth keeping.
+
+Every panel carried *"Data begins at …: the cluster's monitoring does not retain
+the whole window."* On the same node the **7-day** window reported a start of
+31 July and the **30-day** window reported 1 August. A wider window beginning
+later is something retention cannot produce, so the sentence was asserting a
+cause the plugin has no way to know — the third instance in two days of a panel
+explaining rather than reporting.
+
+The real cause, measured against the lab's own Thanos rather than reasoned
+about. A range query answers at a grid of instants and puts a point at one only
+if a sample exists within Prometheus's **five-minute lookback** of it. For one
+node:
+
+| window | step | points returned |
+|---|---|---|
+| 24 hours | 12 min | **22** of 121 |
+| 7 days | 84 min | **4** of 121 |
+| 30 days | 6 hours | **1** of 121 |
+
+So the 30-day band was one sample drawn at full width. It is not even stable:
+the grid moves with the clock, and shifting the end of the same 30-day window
+back by an hour turned one point into three and moved the reported start by a
+day.
+
+**None of this is a defect on a cluster that collects continuously** — every
+grid instant then finds a sample and all 121 come back. It appears exactly where
+collection is intermittent, which on the lab means "the machine is switched off
+at night". That is also why it had to be measured rather than reproduced: the
+condition is the lab's, not the plugin's.
+
+Two changes follow. The retention sentence is replaced by what is actually
+known — *"This window begins at …: nothing earlier came back."* And the panels
+now say how much of the window arrived when some of it did not, because a strip
+drawn from one sample is exactly as wide as one drawn from a hundred and twenty
+and nothing about its shape says which it is. `returnedFraction` is silent when
+the window is full, so a healthy cluster sees neither line.
+
+What is still not drawn is the *head* of a window that begins late: the band
+rescales to the samples it has, so 24 hours of axis can cover twenty. Drawing
+that stretch grey would need to know where the window starts, which means a
+clock, which the pure modules deliberately do not have. The sentence is the
+mitigation.
+
 ### Still to verify
 
 - **File retrieve**, which the container lab cannot do by construction: the

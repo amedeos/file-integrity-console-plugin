@@ -155,11 +155,18 @@ export const rangeSamples = (response?: PrometheusResponse): Sample[] =>
 /**
  * Where the data actually begins, when that is later than what was asked for.
  *
- * This is the whole reason the window selector needed care. Past the cluster's
- * retention Prometheus does not refuse the range, it just answers with less of
- * it — and a strip that quietly starts three days in reads as three quiet days,
- * which is worse than showing nothing. Two steps of tolerance, so ordinary
- * scrape misalignment at the left edge is not reported as a gap.
+ * This is the whole reason the window selector needed care. Prometheus does not
+ * refuse a range it cannot fill, it just answers with less of it — and a strip
+ * that quietly starts three days in reads as three quiet days, which is worse
+ * than showing nothing. Two steps of tolerance, so ordinary scrape misalignment
+ * at the left edge is not reported as a gap.
+ *
+ * **Why it begins late is not knowable from here, and the panel used to say it
+ * was retention.** It can equally be that nothing was collected before then —
+ * on the lab, that the cluster had not been built yet. The two were told apart
+ * by the windows contradicting each other: 30 days reported a *later* start
+ * than 7 days, which retention cannot produce. See `returnedFraction` below for
+ * what does produce it.
  *
  * The window is measured back from the last sample rather than from the
  * clock, so this needs no notion of "now": the caller does not have to know
@@ -202,6 +209,35 @@ export const resolution = (timespan: Timespan): Resolution => {
     ? { value: minutes / 60, unit: 'hours' }
     : { value: minutes, unit: 'minutes' };
 };
+
+/**
+ * Whether the window came back as full as it was asked for.
+ *
+ * A range query answers at a grid of instants and puts a point at one only if a
+ * sample exists within Prometheus's five-minute lookback of it. Where
+ * collection is continuous every instant finds one and the answer is complete,
+ * which is why this is silent on a healthy cluster. Where it is intermittent
+ * the grid mostly falls in the dark, and the coarser the step the worse it
+ * gets: measured on the lab against one node, 22 points of 121 over 24 hours,
+ * **4 over 7 days and 1 over 30**.
+ *
+ * A band drawn from one point is not a coarse history, it is a sample of one
+ * presented at full width — and it is not even stable, since the grid moves
+ * with the clock: shifting the end of the same 30-day window by an hour turned
+ * one point into three and moved the reported start by a day. That instability
+ * is what proved the "monitoring does not retain the whole window" sentence
+ * wrong, and this is the fact that belongs in its place.
+ *
+ * Returns undefined when the window is as full as asked, so the panels say
+ * nothing when there is nothing to warn about.
+ */
+export const returnedFraction = (
+  samples: Sample[],
+  requested = SAMPLES,
+): { returned: number; requested: number } | undefined =>
+  samples.length < requested
+    ? { returned: samples.length, requested }
+    : undefined;
 
 /**
  * How far apart two samples have to be before the space between them is an
