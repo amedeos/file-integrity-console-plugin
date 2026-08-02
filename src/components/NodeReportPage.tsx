@@ -238,6 +238,7 @@ const NodeReportPage: React.FC = () => {
               <StatusTimeline
                 segments={history.segments}
                 beginsAt={history.beginsAt}
+                sparse={history.sparse}
                 failures={history.failures}
                 timespan={timespan}
               />

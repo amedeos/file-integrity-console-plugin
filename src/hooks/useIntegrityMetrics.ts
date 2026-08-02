@@ -10,6 +10,7 @@ import {
   instantValue,
   queries,
   rangeSamples,
+  returnedFraction,
   stepMillis,
   timespanMillis,
   toSegments,
@@ -72,6 +73,8 @@ export interface History {
   segments: Segment[];
   /** Set when the data starts later than the window asked for. */
   beginsAt?: number;
+  /** Set when fewer points came back than the window asked for. */
+  sparse?: { returned: number; requested: number };
   loaded: boolean;
   error?: unknown;
 }
@@ -94,6 +97,7 @@ const useHistory = (query: string, timespan: Timespan): History => {
       samples,
       segments: toSegments(samples, step),
       beginsAt: dataBeginsAt(samples, timespanMillis(timespan), step),
+      sparse: returnedFraction(samples),
       loaded,
       error,
     };
