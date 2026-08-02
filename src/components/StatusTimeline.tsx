@@ -4,33 +4,9 @@ import { Flex, FlexItem } from '@patternfly/react-core';
 import { Timestamp } from '../lib/k8s';
 import { I18N_NS } from '../constants';
 import { CSS, TOKEN } from '../lib/styles';
+import { LegendItem } from './LegendItem';
+import { resolution, stepMillis } from '../lib/series';
 import type { Segment, Timespan } from '../lib/series';
-
-/** A colour and what it means, side by side, under the band. */
-const LegendItem: React.FC<{ colour: string; label: string }> = ({
-  colour,
-  label,
-}) => (
-  <Flex
-    spaceItems={{ default: 'spaceItemsSm' }}
-    alignItems={{ default: 'alignItemsCenter' }}
-    flexWrap={{ default: 'nowrap' }}
-  >
-    <FlexItem>
-      <span
-        aria-hidden="true"
-        style={{
-          display: 'inline-block',
-          width: '10px',
-          height: '10px',
-          borderRadius: '2px',
-          background: colour,
-        }}
-      />
-    </FlexItem>
-    <FlexItem>{label}</FlexItem>
-  </Flex>
-);
 
 /**
  * One node's integrity over time: a band, red where AIDE was reporting changes
@@ -49,6 +25,13 @@ const LegendItem: React.FC<{ colour: string; label: string }> = ({
  * Each run also carries a `<title>`, which is the SVG element browsers surface
  * as a tooltip. It costs nothing, needs no library and no hover state, and it
  * is what turns "somewhere in there" into a pair of times.
+ *
+ * The third colour is the one that matters most, and it was missing. A period
+ * nobody scraped used to be painted in whichever state surrounded it, so a band
+ * asserted that a node had been failing all night when in truth the cluster had
+ * been switched off — observed on the lab, and worse than an incomplete band
+ * because it is a claim rather than a silence. Grey says nothing was collected,
+ * and the legend says what grey is.
  *
  * The band carries an `aria-label` saying in words what it shows. That is not
  * only for screen readers: jsdom measures every element as zero-sized, so the
@@ -74,7 +57,8 @@ export const StatusTimeline: React.FC<{
   }
 
   const span = to - from;
-  const failing = segments.filter((s) => s.failed);
+  const failing = segments.filter((s) => s.state === 'failed');
+  const uncollected = segments.filter((s) => s.state === 'gap');
 
   const windowLabel: Record<Timespan, string> = {
     '24h': t('the last 24 hours'),
@@ -82,19 +66,52 @@ export const StatusTimeline: React.FC<{
     '30d': t('the last 30 days'),
   };
 
-  const summary =
+  // Said out loud rather than left to the colours, because it changes what the
+  // sentence before it is worth: "no changes detected" over a window a third of
+  // which was never scraped is a claim about the third that was.
+  const summary = [
     failing.length === 0
       ? t('No changes detected on this node during {{window}}.', {
           window: windowLabel[timespan],
         })
       : t('Changes were being reported during {{count}} period(s).', {
           count: failing.length,
-        });
+        }),
+    uncollected.length === 0
+      ? ''
+      : t('Nothing was collected during {{count}} period(s).', {
+          count: uncollected.length,
+        }),
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  const fill: Record<Segment['state'], string> = {
+    failed: TOKEN.fillDanger,
+    ok: TOKEN.fillSuccess,
+    gap: TOKEN.fillUnknown,
+  };
 
   const range = (segment: Segment) =>
     `${new Date(segment.from).toLocaleString()} — ${new Date(
       segment.to,
     ).toLocaleString()}`;
+
+  const describe = (segment: Segment) => {
+    const when = { range: range(segment) };
+    if (segment.state === 'failed') {
+      return t('Changes reported, {{range}}', when);
+    }
+    return segment.state === 'ok'
+      ? t('No changes, {{range}}', when)
+      : t('Not collected, {{range}}', when);
+  };
+
+  const grain = resolution(timespan);
+  const grainLabel =
+    grain.unit === 'hours'
+      ? t('One sample every {{count}} hour(s).', { count: grain.value })
+      : t('One sample every {{count}} minute(s).', { count: grain.value });
 
   return (
     <>
@@ -119,13 +136,9 @@ export const StatusTimeline: React.FC<{
             width={Math.max(((segment.to - segment.from) / span) * 1000, 2)}
             y={0}
             height={24}
-            fill={segment.failed ? TOKEN.fillDanger : TOKEN.fillSuccess}
+            fill={fill[segment.state]}
           >
-            <title>
-              {segment.failed
-                ? t('Changes reported, {{range}}', { range: range(segment) })
-                : t('No changes, {{range}}', { range: range(segment) })}
-            </title>
+            <title>{describe(segment)}</title>
           </rect>
         ))}
       </svg>
@@ -137,7 +150,19 @@ export const StatusTimeline: React.FC<{
         <FlexItem>
           <Timestamp timestamp={new Date(from).toISOString()} />
         </FlexItem>
-        <FlexItem>{t('now')}</FlexItem>
+        {/*
+          The right end is the last sample, not the word "now". They are the
+          same thing only while collection is current: stop scraping and
+          Prometheus stops returning points, so the band ends where the data
+          did — and labelling that "now" is the same lie as painting a gap.
+          One step back from the band's edge, because a segment covers the step
+          that follows its sample and a timestamp in the future reads as a bug.
+        */}
+        <FlexItem>
+          <Timestamp
+            timestamp={new Date(to - stepMillis(timespan)).toISOString()}
+          />
+        </FlexItem>
       </Flex>
 
       <Flex
@@ -150,6 +175,10 @@ export const StatusTimeline: React.FC<{
         <FlexItem>
           <LegendItem colour={TOKEN.fillSuccess} label={t('No changes')} />
         </FlexItem>
+        <FlexItem>
+          <LegendItem colour={TOKEN.fillUnknown} label={t('Not collected')} />
+        </FlexItem>
+        <FlexItem>{grainLabel}</FlexItem>
       </Flex>
 
       <p className={CSS.marginTopSm}>
