@@ -35,6 +35,22 @@
 # addresses, read once before any container starts, and no request the console
 # makes carries that identity.
 #
+# What it exercises is authorization **against the API server**, faithfully. It
+# does not exercise authorization against Prometheus, and believing otherwise
+# reads a healthy plugin as a broken one. The `thanos-querier` route targets
+# port `web`, 9091, whose kube-rbac-proxy authorizes `get` on
+# `prometheuses/api` named `k8s` — the `cluster-monitoring-view` ClusterRole.
+# The *tenancy* port, 9092, is the one the console's per-namespace proxy uses
+# and it authorizes something else entirely: `get pods` in `metrics.k8s.io`,
+# in the namespace taken from the query's own `namespace` parameter. No route
+# exposes it, so off-cluster every query lands on the cluster-wide endpoint
+# whatever the plugin asked for.
+#
+# `cluster-reader` is exactly the identity that separates the two: refused here,
+# allowed on a real console. Read off the running cluster — the route's target
+# port, both kube-rbac-proxy config secrets, and `oc auth can-i` for each — not
+# inferred.
+#
 # --no-thanos starts the console with no Prometheus proxy at all, which is the
 # only way to reach the history panels' error state deliberately:
 #
@@ -137,9 +153,10 @@ SERVER=$(oc whoami --show-server)
 #
 # Everything else here still works without it, so this warns rather than dies:
 # a cluster with no monitoring route is a fine place to check that a build
-# loads. Every query runs as the one token the bridge was started with, which
-# is what BRIDGE_TOKEN above turns from a limitation into the way to exercise
-# authorization.
+# loads. Every query runs as the one token the bridge was started with — and
+# against this endpoint, which is the cluster-wide one whatever the plugin
+# asked for. See the note on BRIDGE_TOKEN above before reading a refusal here
+# as the answer a real console would give.
 #
 # --no-thanos withholds it deliberately, so it is announced rather than warned
 # about: the panels failing to reach a proxy is then the thing being looked at,

@@ -63,8 +63,8 @@ const NodeReportPage: React.FC = () => {
   const fiName = params.fiName ?? '';
   const nodeName = params.nodeName ?? '';
 
-  const [fis, fisLoaded] = useFileIntegrities();
-  const [statuses, statusesLoaded] = useNodeStatuses();
+  const [fis, fisLoaded, fisError] = useFileIntegrities();
+  const [statuses, statusesLoaded, statusesError] = useNodeStatuses();
 
   const [timespan, setTimespan] = React.useState<Timespan>('24h');
   const availability = useMetricsAvailability();
@@ -146,6 +146,10 @@ const NodeReportPage: React.FC = () => {
   }
 
   const loaded = fisLoaded && statusesLoaded;
+  // A watch that is refused never becomes loaded, so a page that spins until it
+  // does spins for ever. Both errors were being discarded here, which turned a
+  // 403 into a permanent spinner and no message at all.
+  const error = fisError ?? statusesError;
 
   return (
     <>
@@ -222,12 +226,12 @@ const NodeReportPage: React.FC = () => {
             </Flex>
           </CardTitle>
           <CardBody>
-            {!availability.loaded || !history.loaded ? (
+            {historyError ? (
+              <HistoryError error={historyError} />
+            ) : !availability.loaded || !history.loaded ? (
               <Bullseye>
                 <Spinner />
               </Bullseye>
-            ) : historyError ? (
-              <HistoryError error={historyError} />
             ) : !availability.scraped ? (
               <MetricsUnavailable />
             ) : (
@@ -243,7 +247,15 @@ const NodeReportPage: React.FC = () => {
       </PageSection>
 
       <PageSection>
-        {!loaded ? (
+        {error ? (
+          <Alert
+            variant="danger"
+            isInline
+            title={t('Could not load File Integrity data')}
+          >
+            {errorMessage(error)}
+          </Alert>
+        ) : !loaded ? (
           <Bullseye>
             <Spinner />
           </Bullseye>
