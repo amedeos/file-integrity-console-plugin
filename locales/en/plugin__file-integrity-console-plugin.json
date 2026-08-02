@@ -71,6 +71,7 @@
   "Node not found": "Node not found",
   "Nodes reporting changes": "Nodes reporting changes",
   "Not allowed": "Not allowed",
+  "Not allowed to read the history": "Not allowed to read the history",
   "Not authenticated": "Not authenticated",
   "Not collected": "Not collected",
   "Not collected, {{range}}": "Not collected, {{range}}",
@@ -109,6 +110,7 @@
   "Size read": "Size read",
   "Started by the operator when a node changed.": "Started by the operator when a node changed.",
   "Started by the operator when the AIDE configuration changed.": "Started by the operator when the AIDE configuration changed.",
+  "The console could not reach the cluster’s monitoring, so there is nothing to show over time. The results below are unaffected.": "The console could not reach the cluster’s monitoring, so there is nothing to show over time. The results below are unaffected.",
   "The console did not forward your credentials to the plugin backend. Reload the page and try again.": "The console did not forward your credentials to the plugin backend. Reload the page and try again.",
   "The content is shown as a hex dump. Use Download for the raw bytes.": "The content is shown as a hex dump. Use Download for the raw bytes.",
   "The current AIDE database is discarded and rebuilt from the files as they are on disk now. Everything currently reported as added, changed or removed stops being reported, including any change that turns out to be an intrusion. Only do this once you have reviewed the outstanding findings.": "The current AIDE database is discarded and rebuilt from the files as they are on disk now. Everything currently reported as added, changed or removed stops being reported, including any change that turns out to be an intrusion. Only do this once you have reviewed the outstanding findings.",
@@ -124,11 +126,13 @@
   "The operator will rebuild the AIDE database on every node covered by {{count}} FileIntegrity resource(s)._one": "The operator will rebuild the AIDE database on every node covered by {{count}} FileIntegrity resource.",
   "The operator will rebuild the AIDE database on every node covered by {{count}} FileIntegrity resource(s)._other": "The operator will rebuild the AIDE database on every node covered by {{count}} FileIntegrity resources.",
   "The parsed report is incomplete": "The parsed report is incomplete",
+  "The query failed with: {{detail}}": "The query failed with: {{detail}}",
   "The report is in a format this plugin does not recognise, possibly from a newer AIDE version. The raw text is shown below.": "The report is in a format this plugin does not recognise, possibly from a newer AIDE version. The raw text is shown below.",
   "The report was too large to store": "The report was too large to store",
   "The request was refused with HTTP {{status}} before it reached the plugin, so the file was never looked for and this says nothing about the node. The usual cause is the console’s plugin proxy: check that the ConsolePlugin resource declares the backend’s proxy alias and that the plugin’s pod is running.": "The request was refused with HTTP {{status}} before it reached the plugin, so the file was never looked for and this says nothing about the node. The usual cause is the console’s plugin proxy: check that the ConsolePlugin resource declares the backend’s proxy alias and that the plugin’s pod is running.",
   "The scan did not complete": "The scan did not complete",
   "This report could not be parsed": "This report could not be parsed",
   "Time range": "Time range",
-  "View file": "View file"
+  "View file": "View file",
+  "You are not allowed to query monitoring data for the {{fioNamespace}} namespace, so there is nothing to show over time. The results below are unaffected.": "You are not allowed to query monitoring data for the {{fioNamespace}} namespace, so there is nothing to show over time. The results below are unaffected."
 }

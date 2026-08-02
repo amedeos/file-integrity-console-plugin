@@ -46,6 +46,7 @@ import { CSS, TOKEN } from '../lib/styles';
 import type { Timespan } from '../lib/series';
 import { ConditionLabel } from './ConditionLabel';
 import { FailingNodesSparkline } from './FailingNodesSparkline';
+import { HistoryError } from './HistoryError';
 import { MetricsUnavailable } from './MetricsUnavailable';
 import { ReinitBulkActions } from './ReinitActions';
 import { ReinitSummary } from './ReinitSummary';
@@ -243,13 +244,7 @@ const NodeStatusOverviewPage: React.FC = () => {
                 <Spinner />
               </Bullseye>
             ) : historyError ? (
-              <Alert
-                variant="warning"
-                isInline
-                title={t('Could not read the history')}
-              >
-                {errorMessage(historyError)}
-              </Alert>
+              <HistoryError error={historyError} />
             ) : !availability.scraped ? (
               <MetricsUnavailable />
             ) : (

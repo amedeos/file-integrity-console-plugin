@@ -41,6 +41,7 @@ import type { Timespan } from '../lib/series';
 import { ConditionLabel } from './ConditionLabel';
 import { AideReportTable } from './AideReportTable';
 import { FileContentModal } from './FileContentModal';
+import { HistoryError } from './HistoryError';
 import { MetricsUnavailable } from './MetricsUnavailable';
 import { ReinitNodeButton } from './ReinitActions';
 import { StatusTimeline } from './StatusTimeline';
@@ -226,13 +227,7 @@ const NodeReportPage: React.FC = () => {
                 <Spinner />
               </Bullseye>
             ) : historyError ? (
-              <Alert
-                variant="warning"
-                isInline
-                title={t('Could not read the history')}
-              >
-                {errorMessage(historyError)}
-              </Alert>
+              <HistoryError error={historyError} />
             ) : !availability.scraped ? (
               <MetricsUnavailable />
             ) : (

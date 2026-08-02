@@ -71,6 +71,7 @@
   "Node not found": "Nodo non trovato",
   "Nodes reporting changes": "Nodi che segnalano modifiche",
   "Not allowed": "Non consentito",
+  "Not allowed to read the history": "Non è consentito leggere lo storico",
   "Not authenticated": "Non autenticato",
   "Not collected": "Dati non raccolti",
   "Not collected, {{range}}": "Dati non raccolti, {{range}}",
@@ -109,6 +110,7 @@
   "Size read": "Dimensione letta",
   "Started by the operator when a node changed.": "Avviata dall’operatore quando un nodo è cambiato.",
   "Started by the operator when the AIDE configuration changed.": "Avviata dall’operatore quando è cambiata la configurazione di AIDE.",
+  "The console could not reach the cluster’s monitoring, so there is nothing to show over time. The results below are unaffected.": "La console non è riuscita a raggiungere il monitoraggio del cluster, quindi non c’è niente da mostrare nel tempo. I risultati qui sotto non ne risentono.",
   "The console did not forward your credentials to the plugin backend. Reload the page and try again.": "La console non ha inoltrato le tue credenziali al backend del plugin. Ricarica la pagina e riprova.",
   "The content is shown as a hex dump. Use Download for the raw bytes.": "Il contenuto è mostrato come dump esadecimale. Usa Scarica per ottenere i byte grezzi.",
   "The current AIDE database is discarded and rebuilt from the files as they are on disk now. Everything currently reported as added, changed or removed stops being reported, including any change that turns out to be an intrusion. Only do this once you have reviewed the outstanding findings.": "Il database AIDE attuale viene scartato e ricostruito dai file così come si trovano ora su disco. Tutto ciò che è attualmente segnalato come aggiunto, modificato o rimosso smette di essere segnalato, comprese eventuali modifiche che si rivelino un'intrusione. Procedi solo dopo aver esaminato le segnalazioni aperte.",
@@ -124,11 +126,13 @@
   "The operator will rebuild the AIDE database on every node covered by {{count}} FileIntegrity resource(s)._one": "L'operatore ricostruirà il database AIDE su ogni nodo coperto da {{count}} risorsa FileIntegrity.",
   "The operator will rebuild the AIDE database on every node covered by {{count}} FileIntegrity resource(s)._other": "L'operatore ricostruirà il database AIDE su ogni nodo coperto da {{count}} risorse FileIntegrity.",
   "The parsed report is incomplete": "Il report analizzato è incompleto",
+  "The query failed with: {{detail}}": "L’interrogazione è fallita con: {{detail}}",
   "The report is in a format this plugin does not recognise, possibly from a newer AIDE version. The raw text is shown below.": "Il report è in un formato che questo plugin non riconosce, forse prodotto da una versione più recente di AIDE. Il testo grezzo è mostrato qui sotto.",
   "The report was too large to store": "Il report era troppo grande per essere salvato",
   "The request was refused with HTTP {{status}} before it reached the plugin, so the file was never looked for and this says nothing about the node. The usual cause is the console’s plugin proxy: check that the ConsolePlugin resource declares the backend’s proxy alias and that the plugin’s pod is running.": "La richiesta è stata rifiutata con HTTP {{status}} prima di arrivare al plugin, quindi il file non è mai stato cercato e questo non dice nulla sul nodo. La causa abituale è il proxy dei plugin della console: verificare che la risorsa ConsolePlugin dichiari l’alias di proxy del backend e che il pod del plugin sia in esecuzione.",
   "The scan did not complete": "La scansione non è stata completata",
   "This report could not be parsed": "Non è stato possibile analizzare questo report",
   "Time range": "Intervallo di tempo",
-  "View file": "Visualizza file"
+  "View file": "Visualizza file",
+  "You are not allowed to query monitoring data for the {{fioNamespace}} namespace, so there is nothing to show over time. The results below are unaffected.": "Non ti è consentito interrogare i dati di monitoraggio per il namespace {{fioNamespace}}, quindi non c’è niente da mostrare nel tempo. I risultati qui sotto non ne risentono."
 }
