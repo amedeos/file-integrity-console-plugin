@@ -54,11 +54,27 @@ const humanBytes = (n: number): string =>
  * path through this tool", while a 403 from the API server means "you may not,
  * but someone else could". Both arrive as 403, so the backend's message is
  * what carries the difference and we show it verbatim.
+ *
+ * Which is only sound while the backend is what answered. A status on its own
+ * says nothing about who produced it: the console's plugin proxy sits in front
+ * and refuses in the same numbers. Every one of the explanations below is
+ * about something the *backend* found, so none of them may be shown for a
+ * response the backend did not send — hence the check before the switch rather
+ * than a special case inside it.
  */
 const useErrorText = () => {
   const { t } = useTranslation(I18N_NS);
   return (error: unknown): { title: string; body: string } => {
     if (error instanceof BackendError) {
+      if (!error.fromBackend) {
+        return {
+          title: t('Could not reach the plugin backend'),
+          body: t(
+            'The request was refused with HTTP {{status}} before it reached the plugin, so the file was never looked for and this says nothing about the node. The usual cause is the console’s plugin proxy: check that the ConsolePlugin resource declares the backend’s proxy alias and that the plugin’s pod is running.',
+            { status: error.status },
+          ),
+        };
+      }
       switch (error.status) {
         case 401:
           return {

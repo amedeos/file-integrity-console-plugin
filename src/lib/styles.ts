@@ -60,5 +60,20 @@ export const TOKEN = {
    */
   fillDanger: 'var(--pf-v5-global--danger-color--100)',
   fillSuccess: 'var(--pf-v5-global--success-color--100)',
+  /**
+   * Where nothing was collected. Deliberately not a status colour: those four
+   * are reserved for states the cluster was actually in, and "nobody was
+   * looking" is not one of them. A grey has no hue to confuse with the two
+   * beside it under any colour vision, because what separates it from them is
+   * chroma rather than hue.
+   *
+   * PatternFly 5 offers three disabled greys where 6 offers one, and this is
+   * the darkest of them rather than the nearest in lightness. `--200` is
+   * #d2d2d2, which on a white card is a tint rather than a mark — and a grey
+   * that can be mistaken for the unpainted background reintroduces exactly the
+   * ambiguity this state was added to remove. The legend swatch is ten pixels
+   * square and settles it.
+   */
+  fillUnknown: 'var(--pf-v5-global--disabled-color--100)',
   borderSubtle: 'var(--pf-v5-global--BorderColor--100)',
 } as const;

@@ -159,6 +159,15 @@ file it touches and buries real changes.
   dialog was written. **Write the singular and the plural out by hand after
   regenerating**; the suffix names the CLDR category and belongs to the key
   alone. CI now fails on any English value ending in one.
+
+  **An interpolation must not be called `namespace`.** i18next-parser reads an
+  option of that name as i18next's own namespace and files the string in a
+  catalogue named after the *expression text* — `t('… {{namespace}} …',
+  { namespace: FIO_NAMESPACE })` wrote `locales/en/FIO_NAMESPACE.json` and left
+  the real catalogue without a string the source plainly contains, so the
+  console renders the key. Nothing objects: the source is correct, the types are
+  fine, and only the alignment check notices, and then only because the Italian
+  side was written by hand. Give it any other name.
 - **The version is written in four places** — `version` and
   `consolePlugin.version` in `package.json`, `appVersion` and `version` in the
   chart — and a git tag is what names the released image. Keep them in step.

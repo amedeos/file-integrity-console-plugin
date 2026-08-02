@@ -18,25 +18,22 @@ jest.mock('../lib/router', () => ({
 
 const mockConfigMap = jest.fn<ResultConfigMap | undefined, []>();
 
+// The whole tuple, so a test can say "refused, and therefore never loaded" —
+// which is what a watch the API server rejects looks like, and what this page
+// used to discard entirely.
+const mockNodeStatuses = jest.fn<
+  [FileIntegrityNodeStatus[], boolean, unknown],
+  []
+>();
+
 jest.mock('../hooks/useFileIntegrityData', () => ({
   useFileIntegrities: (): [FileIntegrity[], boolean, unknown] => [
     [{ metadata: { name: 'example-fileintegrity' } }],
     true,
     undefined,
   ],
-  useNodeStatuses: (): [FileIntegrityNodeStatus[], boolean, unknown] => [
-    [
-      {
-        nodeName: 'node-0',
-        lastResult: {
-          condition: 'Failed',
-          resultConfigMapName: 'aide-example-node-0-failed',
-        },
-      },
-    ],
-    true,
-    undefined,
-  ],
+  useNodeStatuses: (): [FileIntegrityNodeStatus[], boolean, unknown] =>
+    mockNodeStatuses(),
   useResultConfigMap: () => ({ configMap: mockConfigMap(), loaded: true }),
 }));
 
@@ -98,11 +95,44 @@ const TRUNCATED_REPORT =
   'The AIDE log is too large for a configMap, fetch it from ' +
   '/etc/kubernetes/aide.log on node node-0';
 
+const NODE_STATUSES: [FileIntegrityNodeStatus[], boolean, unknown] = [
+  [
+    {
+      nodeName: 'node-0',
+      lastResult: {
+        condition: 'Failed',
+        resultConfigMapName: 'aide-example-node-0-failed',
+      },
+    },
+  ],
+  true,
+  undefined,
+];
+
 const rawToggle = () => screen.getByRole('button', { name: /raw AIDE report/ });
 
 describe('NodeReportPage raw report section', () => {
   beforeEach(() => {
     mockConfigMap.mockReturnValue(configMapWith(PARSEABLE_REPORT));
+    mockNodeStatuses.mockReturnValue(NODE_STATUSES);
+  });
+
+  it('stops waiting once the watch has been refused', () => {
+    // This page discarded both watch errors outright, so a user the API server
+    // refuses got a spinner that never stopped and no word about why. The
+    // overview at least printed the message beside it.
+    mockNodeStatuses.mockReturnValue([
+      [],
+      false,
+      new Error('fileintegritynodestatuses is forbidden'),
+    ]);
+
+    render(<NodeReportPage />);
+
+    expect(
+      screen.getByText('Could not load File Integrity data'),
+    ).toBeVisible();
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
   });
 
   it('opens and closes the raw report when the toggle is clicked', async () => {
@@ -152,6 +182,7 @@ describe('NodeReportPage raw report section', () => {
 describe('NodeReportPage history card', () => {
   beforeEach(() => {
     mockConfigMap.mockReturnValue(configMapWith(PARSEABLE_REPORT));
+    mockNodeStatuses.mockReturnValue(NODE_STATUSES);
     mockAvailability.mockReturnValue({ scraped: true, loaded: true });
     mockNodeHistory.mockReturnValue({
       samples: [],
