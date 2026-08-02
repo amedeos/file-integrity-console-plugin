@@ -75,11 +75,11 @@ describe('FailingNodesSparkline', () => {
     ).toBeVisible();
   });
 
-  it('warns only when the data starts later than the window asked for', () => {
+  it('states where the window begins without claiming why', () => {
     const { rerender } = render(
       <FailingNodesSparkline samples={run(0, 1)} timespan="30d" />,
     );
-    expect(screen.queryByText(/Data begins at/)).toBeNull();
+    expect(screen.queryByText(/This window begins at/)).toBeNull();
 
     rerender(
       <FailingNodesSparkline
@@ -88,6 +88,25 @@ describe('FailingNodesSparkline', () => {
         timespan="30d"
       />,
     );
-    expect(screen.getByText(/Data begins at/)).toBeVisible();
+    expect(screen.getByText(/This window begins at/)).toBeVisible();
+  });
+
+  it('says how much of the window came back, and only when some is missing', () => {
+    // A band drawn from one point is exactly as wide as one drawn from a
+    // hundred and twenty, and nothing about its shape says which it is. On the
+    // lab the 30-day window returned a single sample.
+    const { rerender } = render(
+      <FailingNodesSparkline samples={run(0, 1)} timespan="30d" />,
+    );
+    expect(screen.queryByText(/points asked for came back/)).toBeNull();
+
+    rerender(
+      <FailingNodesSparkline
+        samples={run(0, 1)}
+        sparse={{ returned: 1, requested: 120 }}
+        timespan="30d"
+      />,
+    );
+    expect(screen.getByText(/points asked for came back/)).toBeVisible();
   });
 });
