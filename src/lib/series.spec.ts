@@ -9,6 +9,7 @@ import {
   queries,
   rangeSamples,
   resolution,
+  returnedFraction,
   splitAtGaps,
   stepMillis,
   stepPaths,
@@ -383,5 +384,31 @@ describe('stepPaths', () => {
       { points: '0.00,0.00 10.00,0.00', from: 0, to: 10 },
       { points: '90.00,5.00 100.00,5.00', from: 90, to: 100 },
     ]);
+  });
+});
+
+describe('returnedFraction', () => {
+  const samples = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ t: i * 1000, value: 0 }));
+
+  it('says nothing when the window came back as full as it was asked for', () => {
+    expect(returnedFraction(samples(120), 120)).toBeUndefined();
+    expect(returnedFraction(samples(121), 120)).toBeUndefined();
+  });
+
+  // A range query answers at a grid of instants and puts a point at one only if
+  // a sample exists within Prometheus's five-minute lookback. Measured on the
+  // lab, where the cluster is switched off nightly: 22 points of 121 over 24
+  // hours, 4 over 7 days, 1 over 30 — so the 30-day band was one sample drawn
+  // at full width, and nothing on screen said so.
+  it('reports how much of the window arrived when it did not all arrive', () => {
+    expect(returnedFraction(samples(1), 120)).toEqual({
+      returned: 1,
+      requested: 120,
+    });
+  });
+
+  it('counts an empty answer as an empty answer rather than as no opinion', () => {
+    expect(returnedFraction([], 120)).toEqual({ returned: 0, requested: 120 });
   });
 });
