@@ -182,16 +182,80 @@ export const dataBeginsAt = (
   return first > last - timespan + 2 * step ? first : undefined;
 };
 
+/**
+ * How much time one sample stands for.
+ *
+ * The window selector changes this by a factor of thirty and says nothing about
+ * it, which is the difference between reading a band as an incident and reading
+ * it as noise: over 24 hours a single failing sample is twelve minutes, over 30
+ * days it is six hours of strip. The panels state it, and this is where the
+ * arithmetic lives so it can be tested rather than trusted.
+ */
+export interface Resolution {
+  value: number;
+  unit: 'minutes' | 'hours';
+}
+
+export const resolution = (timespan: Timespan): Resolution => {
+  const minutes = Math.round(stepMillis(timespan) / 60000);
+  return minutes >= 120 && minutes % 60 === 0
+    ? { value: minutes / 60, unit: 'hours' }
+    : { value: minutes, unit: 'minutes' };
+};
+
+/**
+ * How far apart two samples have to be before the space between them is an
+ * absence rather than the ordinary spacing.
+ *
+ * Prometheus answers a range query at every step where the series was alive,
+ * and omits the steps where it was not — so consecutive entries in the array
+ * are *not* consecutive in time, and treating them as such is the whole defect
+ * this constant exists to fix. One missing point already means at least a
+ * step's worth of nothing, so the threshold sits between one step and two
+ * rather than being generous: a scrape that merely stutters does not lose a
+ * point at all, because Prometheus looks back five minutes for one.
+ */
+const GAP_STEPS = 1.5;
+
+/**
+ * The samples split into runs, broken wherever collection stopped.
+ *
+ * Every drawing function goes through this, so none of them can accidentally
+ * join two sides of a gap — which is what each of them used to do.
+ */
+export const splitAtGaps = (samples: Sample[], step: number): Sample[][] => {
+  const runs: Sample[][] = [];
+  let previous: number | undefined;
+  samples.forEach((sample) => {
+    if (previous === undefined || sample.t - previous > GAP_STEPS * step) {
+      runs.push([]);
+    }
+    runs.at(-1)?.push(sample);
+    previous = sample.t;
+  });
+  return runs;
+};
+
+/** What a strip is made of: a measured run, or a stretch of nothing. */
+export type SegmentState = 'failed' | 'ok' | 'gap';
+
 /** A run of consecutive samples sharing a state. */
 export interface Segment {
   from: number;
   to: number;
-  failed: boolean;
+  state: SegmentState;
+}
+
+/** One unbroken stretch of the count line, and the x range it occupies. */
+export interface StepPath {
+  points: string;
+  from: number;
+  to: number;
 }
 
 /**
  * A count series as SVG polyline points, drawn as **steps** rather than as a
- * line between sample centres.
+ * line between sample centres, and **broken wherever collection stopped**.
  *
  * The values are counts of nodes, and a count does not slide from two to three:
  * it was two until a scrape said otherwise. Joining the points diagonally draws
@@ -199,37 +263,53 @@ export interface Segment {
  * time — halfway between the two scrapes instead of at the second one. So each
  * sample holds its value until the next, and the line turns vertically.
  *
+ * Holding a value until the next sample is right *while there is a next
+ * sample*. Across a gap it becomes a claim about hours nobody measured — the
+ * line ran flat through the night the lab was switched off, saying two nodes
+ * were failing throughout. Hence one path per run rather than one for the
+ * series, and hence each path carrying its own x range: the caller closes the
+ * area under it to the baseline, and needs to know where it starts and ends to
+ * do that without inventing corners.
+ *
  * `peak` is the top of the scale, passed in rather than derived here because
  * the caller also has to label it. Zero or negative would divide by nothing, so
  * it is floored at one — a series of all zeroes then draws flat along the
  * bottom, which is the truth.
  *
- * Returns an empty string when there is nothing to draw, which callers check
+ * Returns an empty array when there is nothing to draw, which callers check
  * before rendering an axis around it.
  */
-export const stepPoints = (
+export const stepPaths = (
   samples: Sample[],
-  plot: { width: number; height: number; peak: number },
-): string => {
-  const from = samples.at(0)?.t;
-  const to = samples.at(-1)?.t;
-  if (from === undefined || to === undefined || to <= from) {
-    return '';
+  plot: { width: number; height: number; peak: number; step: number },
+): StepPath[] => {
+  const first = samples.at(0)?.t;
+  const last = samples.at(-1)?.t;
+  if (first === undefined || last === undefined || last <= first) {
+    return [];
   }
-  const span = to - from;
+  const span = last - first;
   const peak = Math.max(plot.peak, 1);
-  const points: string[] = [];
-  let previousY: number | undefined;
-  samples.forEach((sample) => {
-    const x = ((sample.t - from) / span) * plot.width;
-    const y = plot.height - (sample.value / peak) * plot.height;
-    if (previousY !== undefined && previousY !== y) {
-      points.push(`${x.toFixed(2)},${previousY.toFixed(2)}`);
-    }
-    points.push(`${x.toFixed(2)},${y.toFixed(2)}`);
-    previousY = y;
+  const scaleX = (t: number) => ((t - first) / span) * plot.width;
+
+  return splitAtGaps(samples, plot.step).map((run) => {
+    const points: string[] = [];
+    let previousY: number | undefined;
+    run.forEach((sample) => {
+      const x = scaleX(sample.t);
+      const y = plot.height - (sample.value / peak) * plot.height;
+      if (previousY !== undefined && previousY !== y) {
+        points.push(`${x.toFixed(2)},${previousY.toFixed(2)}`);
+      }
+      points.push(`${x.toFixed(2)},${y.toFixed(2)}`);
+      previousY = y;
+    });
+    return {
+      points: points.join(' '),
+      from: scaleX(run.at(0)?.t ?? first),
+      to: scaleX(run.at(-1)?.t ?? first),
+    };
   });
-  return points.join(' ');
 };
 
 /**
@@ -239,17 +319,32 @@ export const stepPoints = (
  * width it represents instead of stopping at a point. The gauge is 0 or 1 and
  * anything above zero counts as failing, which also makes this correct for the
  * cluster-wide sum where the value is a count of failing nodes.
+ *
+ * **A gap is a third state, not the absence of one.** Merging two samples that
+ * happen to be adjacent in the array painted the hours between them in the
+ * colour of whichever state surrounded them, so a band claimed a node had been
+ * failing all night when the truth was that nothing had been asked. That is
+ * worse than incomplete: it is an assertion about a period nobody measured.
+ * When the two sides disagreed the gap was instead left blank — which is honest
+ * by accident and unreadable by design, since nothing said what blank meant.
  */
 export const toSegments = (samples: Sample[], step: number): Segment[] => {
   const segments: Segment[] = [];
-  samples.forEach((sample) => {
-    const failed = sample.value > 0;
-    const last = segments.at(-1);
-    if (last?.failed === failed) {
-      last.to = sample.t + step;
-    } else {
-      segments.push({ from: sample.t, to: sample.t + step, failed });
+  splitAtGaps(samples, step).forEach((run) => {
+    const previousEnd = segments.at(-1)?.to;
+    const start = run.at(0)?.t;
+    if (previousEnd !== undefined && start !== undefined) {
+      segments.push({ from: previousEnd, to: start, state: 'gap' });
     }
+    run.forEach((sample) => {
+      const state: SegmentState = sample.value > 0 ? 'failed' : 'ok';
+      const last = segments.at(-1);
+      if (last?.state === state) {
+        last.to = sample.t + step;
+      } else {
+        segments.push({ from: sample.t, to: sample.t + step, state });
+      }
+    });
   });
   return segments;
 };

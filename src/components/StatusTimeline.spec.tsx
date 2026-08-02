@@ -18,8 +18,8 @@ import type { Segment } from '../lib/series';
 
 const hour = 60 * 60 * 1000;
 
-const segments = (...failed: boolean[]): Segment[] =>
-  failed.map((f, i) => ({ from: i * hour, to: (i + 1) * hour, failed: f }));
+const segments = (...states: Segment['state'][]): Segment[] =>
+  states.map((state, i) => ({ from: i * hour, to: (i + 1) * hour, state }));
 
 describe('StatusTimeline', () => {
   it('says so when there is nothing to draw', () => {
@@ -32,7 +32,7 @@ describe('StatusTimeline', () => {
   it('describes a quiet window in its accessible label', () => {
     render(
       <StatusTimeline
-        segments={segments(false, false)}
+        segments={segments('ok', 'ok')}
         failures={0}
         timespan="24h"
       />,
@@ -46,7 +46,7 @@ describe('StatusTimeline', () => {
   it('describes the periods when changes were being reported', () => {
     render(
       <StatusTimeline
-        segments={segments(false, true, false)}
+        segments={segments('ok', 'failed', 'ok')}
         failures={1}
         timespan="7d"
       />,
@@ -58,21 +58,79 @@ describe('StatusTimeline', () => {
     expect(screen.getByText(/Entered the failed state/)).toBeVisible();
   });
 
-  it('says what the two colours mean, so the band does not rely on colour', () => {
+  it('says what the three colours mean, so the band does not rely on colour', () => {
     // A node failing all window draws one red bar and nothing else. Without
-    // these two words there is no way to know what red was.
+    // these words there is no way to know what red was — nor what grey is,
+    // which is the one a reader has never seen before.
     render(
-      <StatusTimeline segments={segments(true)} failures={1} timespan="24h" />,
+      <StatusTimeline
+        segments={segments('failed')}
+        failures={1}
+        timespan="24h"
+      />,
     );
 
     expect(screen.getByText('Changes reported')).toBeVisible();
     expect(screen.getByText('No changes')).toBeVisible();
+    expect(screen.getByText('Not collected')).toBeVisible();
+  });
+
+  it('says a period was not collected rather than colouring it in', () => {
+    // The defect: a gap between two failing runs used to be painted red, so
+    // the band asserted a node had been failing through hours nobody scraped.
+    render(
+      <StatusTimeline
+        segments={segments('failed', 'gap', 'failed')}
+        failures={2}
+        timespan="7d"
+      />,
+    );
+
+    expect(
+      screen.getByRole('img', { name: /Nothing was collected during/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/^Not collected, /)).toBeInTheDocument();
+  });
+
+  it('stays quiet about collection when nothing is missing', () => {
+    render(
+      <StatusTimeline
+        segments={segments('ok', 'failed')}
+        failures={1}
+        timespan="24h"
+      />,
+    );
+
+    expect(screen.queryByText(/Nothing was collected/)).toBeNull();
+  });
+
+  it('states how much time one sample stands for, which the window changes', () => {
+    // Twelve minutes and six hours draw the same rectangle. Without this the
+    // 30-day band reads as if it had the 24-hour band's resolution, and a
+    // single sample looks like a six-hour incident.
+    //
+    // The translation mock returns the key, so what is assertable here is that
+    // the unit follows the window. The numbers themselves are `resolution`'s,
+    // and are checked in series.spec.ts where they are numbers.
+    const { rerender } = render(
+      <StatusTimeline segments={segments('ok')} failures={0} timespan="24h" />,
+    );
+    expect(
+      screen.getByText('One sample every {{count}} minute(s).'),
+    ).toBeVisible();
+
+    rerender(
+      <StatusTimeline segments={segments('ok')} failures={0} timespan="30d" />,
+    );
+    expect(
+      screen.getByText('One sample every {{count}} hour(s).'),
+    ).toBeVisible();
   });
 
   it('names the period each run covers, for the browser to show on hover', () => {
     render(
       <StatusTimeline
-        segments={segments(false, true)}
+        segments={segments('ok', 'failed')}
         failures={1}
         timespan="24h"
       />,
@@ -86,7 +144,7 @@ describe('StatusTimeline', () => {
 
   it('does not claim a failure count of zero', () => {
     render(
-      <StatusTimeline segments={segments(false)} failures={0} timespan="24h" />,
+      <StatusTimeline segments={segments('ok')} failures={0} timespan="24h" />,
     );
 
     expect(screen.queryByText(/Entered the failed state/)).toBeNull();
@@ -94,13 +152,13 @@ describe('StatusTimeline', () => {
 
   it('warns only when the data starts later than the window asked for', () => {
     const { rerender } = render(
-      <StatusTimeline segments={segments(false)} failures={0} timespan="30d" />,
+      <StatusTimeline segments={segments('ok')} failures={0} timespan="30d" />,
     );
     expect(screen.queryByText(/Data begins at/)).toBeNull();
 
     rerender(
       <StatusTimeline
-        segments={segments(false)}
+        segments={segments('ok')}
         beginsAt={3 * hour}
         failures={0}
         timespan="30d"

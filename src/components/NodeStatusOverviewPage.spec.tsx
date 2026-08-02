@@ -13,6 +13,10 @@ jest.mock('../lib/router', () => ({
 }));
 
 const mockStatuses = jest.fn<FileIntegrityNodeStatus[], []>();
+// Held apart from the data so a test can say "refused, and therefore never
+// loaded", which is the shape a watch the API server rejects actually has.
+const mockStatusesLoaded = jest.fn<boolean, []>();
+const mockStatusesError = jest.fn<unknown, []>();
 
 jest.mock('../hooks/useFileIntegrityData', () => ({
   useFileIntegrities: (): [FileIntegrity[], boolean, unknown] => [
@@ -22,8 +26,8 @@ jest.mock('../hooks/useFileIntegrityData', () => ({
   ],
   useNodeStatuses: (): [FileIntegrityNodeStatus[], boolean, unknown] => [
     mockStatuses(),
-    true,
-    undefined,
+    mockStatusesLoaded(),
+    mockStatusesError(),
   ],
 }));
 
@@ -50,6 +54,27 @@ describe('NodeStatusOverviewPage', () => {
       status('node-failed', 'Failed'),
       status('node-clean', 'Succeeded'),
     ]);
+    mockStatusesLoaded.mockReturnValue(true);
+    mockStatusesError.mockReturnValue(undefined);
+  });
+
+  it('stops waiting once the watch has been refused', () => {
+    // A refused watch never becomes loaded. Reported beside the spinner rather
+    // than in place of it, the page said "this failed" and "still working" at
+    // the same time and turned for ever — observed with a user holding no
+    // rights at all, who is exactly the reader least able to guess why.
+    mockStatuses.mockReturnValue([]);
+    mockStatusesLoaded.mockReturnValue(false);
+    mockStatusesError.mockReturnValue(
+      new Error('fileintegritynodestatuses is forbidden'),
+    );
+
+    render(<NodeStatusOverviewPage />);
+
+    expect(
+      screen.getByText('Could not load File Integrity data'),
+    ).toBeVisible();
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
   });
 
   it('links every node, not only the ones reporting changes', async () => {

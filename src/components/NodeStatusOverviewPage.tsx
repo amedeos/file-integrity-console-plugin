@@ -46,6 +46,7 @@ import { CSS, TOKEN } from '../lib/styles';
 import type { Timespan } from '../lib/series';
 import { ConditionLabel } from './ConditionLabel';
 import { FailingNodesSparkline } from './FailingNodesSparkline';
+import { HistoryError } from './HistoryError';
 import { MetricsUnavailable } from './MetricsUnavailable';
 import { ReinitBulkActions } from './ReinitActions';
 import { ReinitSummary } from './ReinitSummary';
@@ -176,6 +177,12 @@ const NodeStatusOverviewPage: React.FC = () => {
         </Flex>
       </PageSection>
 
+      {/*
+        An error ends the wait. Reported beside the spinner rather than in place
+        of it, the page said "this failed" and "still working" at once, and a
+        refused watch never becomes loaded — so the spinner underneath the
+        message turned for ever. Observed with a user holding no rights at all.
+      */}
       {error ? (
         <PageSection>
           <Alert
@@ -186,9 +193,7 @@ const NodeStatusOverviewPage: React.FC = () => {
             {errorMessage(error)}
           </Alert>
         </PageSection>
-      ) : null}
-
-      {!loaded ? (
+      ) : !loaded ? (
         <PageSection>
           <Bullseye>
             <Spinner />
@@ -238,18 +243,12 @@ const NodeStatusOverviewPage: React.FC = () => {
               panels would otherwise complain separately about the same missing
               prerequisite, which reads as two problems instead of one.
             */}
-            {!availability.loaded ? (
+            {historyError ? (
+              <HistoryError error={historyError} />
+            ) : !availability.loaded ? (
               <Bullseye>
                 <Spinner />
               </Bullseye>
-            ) : historyError ? (
-              <Alert
-                variant="warning"
-                isInline
-                title={t('Could not read the history')}
-              >
-                {errorMessage(historyError)}
-              </Alert>
             ) : !availability.scraped ? (
               <MetricsUnavailable />
             ) : (

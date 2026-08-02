@@ -1213,6 +1213,123 @@ screenshot.
    to the bridge — so it needs a cluster and a deliberately under-privileged
    user.
 
+All four are answered in the section below, two of them differently from the
+way they were expected to be.
+
+## What the second browser round said — 2 August 2026
+
+The lab console can now be told two things it could not be told before, and
+both were built to reach a state rather than to demonstrate one:
+`BRIDGE_TOKEN` browses as somebody other than whoever `oc` is logged in as, and
+`--no-thanos` starts the console with no Prometheus proxy at all. Between them
+they reached the two states nobody had ever seen.
+
+### The band was asserting things nobody had measured
+
+Prometheus answers a range query at the steps where the series was alive and
+omits the rest, so **consecutive entries in the array are not consecutive in
+time**. Both panels treated them as though they were, and the consequence is
+not a gap in a picture — it is a claim.
+
+`toSegments` merged two samples either side of a hole into one run and painted
+the hole in their shared colour. On seven days, `control-plane-1` showed as
+failing solidly across a night the cluster had been **switched off**. Where the
+two sides disagreed the hole was left blank instead, which is honest by accident
+and unreadable by design, since nothing said what blank meant. The sparkline
+made the softer version of the same statement: a step line holds its value until
+the next sample, and across a gap that is a flat line through the dark.
+
+There is now a third state rather than the absence of one — grey, in the legend,
+with the period in its tooltip — and the count line breaks into a path per run.
+Grey deliberately is **not** a status colour: those four are reserved for states
+the cluster was actually in, and "nobody was looking" is not one of them; it
+also separates from red and green by chroma rather than hue, so it survives any
+colour vision. The threshold sits between one step and two rather than being
+generous, because a scrape that merely stutters loses no point at all —
+Prometheus looks back five minutes for one — so a missing point already means a
+step of silence.
+
+Two smaller things the same defect was hiding. The axis said **"now"** at the
+right end, which is true only while collection is current — the very case this
+now draws — so it says the last sample instead. And the window selector changes
+the resolution by a factor of thirty in silence: over 24 hours one sample is
+twelve minutes, over 30 days it is **six hours of band**. Both panels state it,
+because it is the difference between reading a mark as a blip and reading it as
+an outage.
+
+### The error state had never been looked at
+
+`--no-thanos`, and the panel said one word: **`Not Found`**. That names neither
+what was not found nor whether the rest of the page can still be trusted, which
+is the first thing a reader wants when part of a page breaks. It was
+`errorMessage(error)` printed straight into an `Alert` — the transport's status
+text presented as an explanation, which is the same defect as the file-retrieve
+404 below.
+
+`HistoryError` now separates two cases, because they send the reader to
+different people: a 401 or 403 is the cluster's answer about *this* user and
+affects nobody else, while anything else is the monitoring stack and affects
+everyone. The underlying message is kept as detail rather than dropped.
+
+### Authorization — and why the lab answered the wrong question
+
+Two users on the lab: `reader` with `cluster-reader`, and `test01` with no
+binding at all.
+
+`reader` got **`Forbidden`** from the history panels. That looks like the
+answer, and it is not: it is an artefact of the container lab. Read off the
+running cluster — the route's target port, both kube-rbac-proxy config secrets,
+and `oc auth can-i` per identity:
+
+| | port | what it authorizes | `reader` |
+|---|---|---|---|
+| the `thanos-querier` **route** | 9091 `web` | `get prometheuses/api` named `k8s` — i.e. `cluster-monitoring-view` | **no** |
+| the **tenancy** proxy | 9092 | `get pods` in `metrics.k8s.io`, in the namespace taken from the query's own `namespace` parameter | **yes** |
+
+**No route exposes 9092.** So off-cluster the bridge has one address, the
+cluster-wide one, and every query lands there whatever the plugin asked for.
+`cluster-reader` is precisely the identity that separates the two: refused in
+the lab, allowed on a real console. So a `cluster-reader` **does** see the
+panels on a real installation, and `test01` does not — and for `test01` the new
+wording says so instead of saying `Forbidden`.
+
+The header comment in `hack/lab/console.sh` was corrected in the same change,
+because it had claimed the opposite. `BRIDGE_TOKEN` exercises authorization
+against the **API server** faithfully; against Prometheus it does not.
+
+### An error did not end the wait
+
+Which is what browsing as `test01` found, and it is the worst of the five
+because it has nothing to do with monitoring. The overview reported that the
+watch had been refused and went on **turning a spinner underneath the message**,
+for ever: a watch the API server rejects never becomes `loaded`, so a page that
+waits for `loaded` waits without end. The node report was worse — it discarded
+both watch errors on destructuring, so the same user got the spinner and no
+message at all.
+
+An error now takes the place of the spinner rather than sitting beside it, in
+all four places the pattern appears.
+
+### A new way for a string to disappear
+
+`t('…{{namespace}}…', { namespace: FIO_NAMESPACE })` produced
+`locales/en/FIO_NAMESPACE.json`. i18next-parser reads an option called
+`namespace` as i18next's own namespace and files the string in a catalogue named
+after the **expression text**; the real catalogue then silently lacks a string
+the source plainly contains, and the console renders the key. Only the alignment
+check notices. The interpolation is called `fioNamespace` for that reason.
+
+### Still to verify
+
+- **File retrieve**, which the container lab cannot do by construction: the
+  proxy alias is declared in the ConsolePlugin resource and the backend builds
+  its client from `rest.InClusterConfig()`. It needs an OLM install from a
+  freshly built image — the same round that would confirm the authorization
+  finding above against a real console rather than against the API server's
+  answer about it.
+- **The 30-day window on a cluster that does not retain 30 days**, which is the
+  failure the selector introduced and the one thing about it never exercised.
+
 ## Environment notes
 
 - The Go toolchain is **not preinstalled** and `/tmp` is a 1 GB tmpfs, too small for the module
