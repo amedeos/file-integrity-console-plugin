@@ -1362,10 +1362,50 @@ and nothing about its shape says which it is. `returnedFraction` is silent when
 the window is full, so a healthy cluster sees neither line.
 
 What is still not drawn is the *head* of a window that begins late: the band
-rescales to the samples it has, so 24 hours of axis can cover twenty. Drawing
-that stretch grey would need to know where the window starts, which means a
-clock, which the pure modules deliberately do not have. The sentence is the
-mitigation.
+rescales to the samples it has, so 24 hours of axis can cover twenty.
+
+**That paragraph first said this would need a clock, and that was wrong** — the
+correction is left here rather than tidied away, because the mistake is the
+interesting part. `dataBeginsAt` a few lines above in `series.ts` already
+measures the window backwards *from the last sample* for exactly this reason,
+so the window's start is available without asking what time it is. The next
+section is what the omission then produced.
+
+### One sample is not a month — 2 August 2026, found on the rebuilt image
+
+The two lines above were checked in a browser on the published `release-4.16`
+build and read correctly: 28 points of 120 over 24 hours, 6 over 7 days. At 30
+days the same check found the panels contradicting each other, both from the
+same single sample and in opposite directions.
+
+The **sparkline** says *"No samples in this window yet."* Measured against the
+lab's Thanos, the 30-day query returns **one** point, not none. `stepPaths`
+gives up when the first and last sample coincide — a span of zero — and the
+component reads an empty result as an empty window.
+
+The **band** does worse. From that one point it draws a full-width green strip
+and writes underneath *"No changes detected on this node during the last 30
+days."* The node was looked at once, at 16:24 that afternoon, and the sentence
+turns that into a month of cleanliness. The line added the same morning
+contradicts it two rows below: *"1 of the 120 points asked for came back."*
+
+The band fills its width with whatever it has, because its coordinate space runs
+from the first segment to the last. With a hundred points that is right; with
+one it is an assertion about thirty days built from six hours. Three changes
+follow, and they are the next thing to do:
+
+1. **Draw the band in the window's true proportions**, padding the head with the
+   grey "not collected" state from `last sample − timespan`. The 30-day band
+   then shows a sliver of green at the right in a field of grey, which is what
+   happened. This also settles the rescaling noted above, and needs no clock —
+   see the correction there.
+2. **Stop naming the window in the summary when the data does not cover it.**
+   Not "during the last 30 days" but the samples that came back.
+3. **Draw a single sample rather than reporting none.**
+
+Each is arithmetic in `src/lib/series.ts`, so each is testable against numbers;
+none of the three is visible to jsdom, which is why all three reached a browser
+first.
 
 ### Still to verify
 
