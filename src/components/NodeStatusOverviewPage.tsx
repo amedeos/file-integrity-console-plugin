@@ -264,6 +264,7 @@ const NodeStatusOverviewPage: React.FC = () => {
                       <FailingNodesSparkline
                         samples={failingNodes.samples}
                         beginsAt={failingNodes.beginsAt}
+                        sparse={failingNodes.sparse}
                         timespan={timespan}
                       />
                     )}

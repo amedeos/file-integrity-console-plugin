@@ -1,4 +1,5 @@
 {
+  "{{returned}} of the {{requested}} points asked for came back, so this band is a sample rather than a record.": "Sono tornati {{returned}} punti dei {{requested}} richiesti, quindi questa banda è un sondaggio più che una cronologia.",
   "24 hours": "24 ore",
   "30 days": "30 giorni",
   "7 days": "7 giorni",
@@ -36,7 +37,6 @@
   "Could not reach the plugin backend": "Impossibile raggiungere il backend del plugin",
   "Could not read the file": "Impossibile leggere il file",
   "Could not read the history": "Impossibile leggere lo storico",
-  "Data begins at {{when}}: the cluster’s monitoring does not retain the whole window.": "I dati iniziano da {{when}}: il monitoraggio del cluster non conserva l’intera finestra.",
   "Deleted": "Eliminato",
   "Detected file changes": "Modifiche ai file rilevate",
   "Download": "Scarica",
@@ -132,6 +132,7 @@
   "The request was refused with HTTP {{status}} before it reached the plugin, so the file was never looked for and this says nothing about the node. The usual cause is the console’s plugin proxy: check that the ConsolePlugin resource declares the backend’s proxy alias and that the plugin’s pod is running.": "La richiesta è stata rifiutata con HTTP {{status}} prima di arrivare al plugin, quindi il file non è mai stato cercato e questo non dice nulla sul nodo. La causa abituale è il proxy dei plugin della console: verificare che la risorsa ConsolePlugin dichiari l’alias di proxy del backend e che il pod del plugin sia in esecuzione.",
   "The scan did not complete": "La scansione non è stata completata",
   "This report could not be parsed": "Non è stato possibile analizzare questo report",
+  "This window begins at {{when}}: nothing earlier came back.": "Questa finestra comincia alle {{when}}: niente di precedente è tornato.",
   "Time range": "Intervallo di tempo",
   "View file": "Visualizza file",
   "You are not allowed to query monitoring data for the {{fioNamespace}} namespace, so there is nothing to show over time. The results below are unaffected.": "Non ti è consentito interrogare i dati di monitoraggio per il namespace {{fioNamespace}}, quindi non c’è niente da mostrare nel tempo. I risultati qui sotto non ne risentono."
