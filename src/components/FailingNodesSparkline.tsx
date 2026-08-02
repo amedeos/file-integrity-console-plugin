@@ -46,8 +46,10 @@ const HEIGHT = 60;
 export const FailingNodesSparkline: React.FC<{
   samples: Sample[];
   beginsAt?: number;
+  /** Set when fewer points came back than the window asked for. */
+  sparse?: { returned: number; requested: number };
   timespan: Timespan;
-}> = ({ samples, beginsAt, timespan }) => {
+}> = ({ samples, beginsAt, sparse, timespan }) => {
   const { t } = useTranslation(I18N_NS);
 
   const from = samples.at(0)?.t;
@@ -215,9 +217,17 @@ export const FailingNodesSparkline: React.FC<{
 
       {beginsAt === undefined ? null : (
         <p className={`${CSS.fontSizeSm} ${CSS.textSecondary}`}>
+          {t('This window begins at {{when}}: nothing earlier came back.', {
+            when: new Date(beginsAt).toLocaleString(),
+          })}
+        </p>
+      )}
+
+      {sparse === undefined ? null : (
+        <p className={`${CSS.fontSizeSm} ${CSS.textSecondary}`}>
           {t(
-            'Data begins at {{when}}: the cluster’s monitoring does not retain the whole window.',
-            { when: new Date(beginsAt).toLocaleString() },
+            '{{returned}} of the {{requested}} points asked for came back, so this band is a sample rather than a record.',
+            sparse,
           )}
         </p>
       )}

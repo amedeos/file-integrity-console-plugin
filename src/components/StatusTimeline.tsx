@@ -40,9 +40,15 @@ import type { Segment, Timespan } from '../lib/series';
 export const StatusTimeline: React.FC<{
   segments: Segment[];
   beginsAt?: number;
+  /**
+   * Set when fewer points came back than the window asked for, which the band
+   * has no way to show: a strip drawn from one sample is exactly as wide as one
+   * drawn from a hundred and twenty.
+   */
+  sparse?: { returned: number; requested: number };
   failures: number;
   timespan: Timespan;
-}> = ({ segments, beginsAt, failures, timespan }) => {
+}> = ({ segments, beginsAt, sparse, failures, timespan }) => {
   const { t } = useTranslation(I18N_NS);
 
   const from = segments.at(0)?.from;
@@ -192,9 +198,17 @@ export const StatusTimeline: React.FC<{
 
       {beginsAt === undefined ? null : (
         <p className={`${CSS.fontSizeSm} ${CSS.textSecondary}`}>
+          {t('This window begins at {{when}}: nothing earlier came back.', {
+            when: new Date(beginsAt).toLocaleString(),
+          })}
+        </p>
+      )}
+
+      {sparse === undefined ? null : (
+        <p className={`${CSS.fontSizeSm} ${CSS.textSecondary}`}>
           {t(
-            'Data begins at {{when}}: the cluster’s monitoring does not retain the whole window.',
-            { when: new Date(beginsAt).toLocaleString() },
+            '{{returned}} of the {{requested}} points asked for came back, so this band is a sample rather than a record.',
+            sparse,
           )}
         </p>
       )}

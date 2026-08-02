@@ -150,11 +150,11 @@ describe('StatusTimeline', () => {
     expect(screen.queryByText(/Entered the failed state/)).toBeNull();
   });
 
-  it('warns only when the data starts later than the window asked for', () => {
+  it('states where the window begins without claiming why', () => {
     const { rerender } = render(
       <StatusTimeline segments={segments('ok')} failures={0} timespan="30d" />,
     );
-    expect(screen.queryByText(/Data begins at/)).toBeNull();
+    expect(screen.queryByText(/This window begins at/)).toBeNull();
 
     rerender(
       <StatusTimeline
@@ -164,6 +164,26 @@ describe('StatusTimeline', () => {
         timespan="30d"
       />,
     );
-    expect(screen.getByText(/Data begins at/)).toBeVisible();
+    expect(screen.getByText(/This window begins at/)).toBeVisible();
+  });
+
+  it('says how much of the window came back, and only when some is missing', () => {
+    // A band drawn from one point is exactly as wide as one drawn from a
+    // hundred and twenty, and nothing about its shape says which it is. On the
+    // lab the 30-day window returned a single sample.
+    const { rerender } = render(
+      <StatusTimeline segments={segments('ok')} failures={0} timespan="30d" />,
+    );
+    expect(screen.queryByText(/points asked for came back/)).toBeNull();
+
+    rerender(
+      <StatusTimeline
+        segments={segments('ok')}
+        sparse={{ returned: 1, requested: 120 }}
+        failures={0}
+        timespan="30d"
+      />,
+    );
+    expect(screen.getByText(/points asked for came back/)).toBeVisible();
   });
 });
