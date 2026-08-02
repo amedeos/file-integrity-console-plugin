@@ -5,6 +5,20 @@ export class BackendError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    /**
+     * Whether the plugin's own backend is what answered.
+     *
+     * It writes `{"error": …}` for every failure it produces, without
+     * exception — so an error body that is not that shape did not come from
+     * it. What lies in between is the console's plugin proxy, and its refusals
+     * are indistinguishable by status alone: a 404 because the proxy alias is
+     * not declared looks exactly like a 404 because the file is gone.
+     *
+     * The distinction is not academic. Told a 404 meant the latter, the dialog
+     * blamed the node — "no running scan pod, or the file no longer exists" —
+     * for a request that never left the console.
+     */
+    readonly fromBackend = false,
   ) {
     super(message);
     this.name = 'BackendError';
@@ -47,6 +61,7 @@ export const fetchNodeFile = async (
 
   if (!response.ok) {
     let detail = response.statusText;
+    let fromBackend = false;
     try {
       // response.json() is `any`; narrow it before trusting the shape, since
       // an error body is exactly the case where the server may not have sent
@@ -59,11 +74,13 @@ export const fetchNodeFile = async (
         typeof body.error === 'string'
       ) {
         detail = body.error;
+        fromBackend = true;
       }
     } catch {
-      // Non-JSON error body; the status text will have to do.
+      // Non-JSON error body; the status text will have to do, and its absence
+      // is itself the evidence that something other than the backend replied.
     }
-    throw new BackendError(detail, response.status);
+    throw new BackendError(detail, response.status, fromBackend);
   }
 
   return (await response.json()) as NodeFileResponse;
