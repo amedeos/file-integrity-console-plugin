@@ -44,5 +44,13 @@ export const TOKEN = {
    */
   fillDanger: 'var(--pf-t--global--icon--color--status--danger--default)',
   fillSuccess: 'var(--pf-t--global--icon--color--status--success--default)',
+  /**
+   * Where nothing was collected. Deliberately not a status colour: those four
+   * are reserved for states the cluster was actually in, and "nobody was
+   * looking" is not one of them. A grey has no hue to confuse with the two
+   * beside it under any colour vision, because what separates it from them is
+   * chroma rather than hue.
+   */
+  fillUnknown: 'var(--pf-t--global--icon--color--disabled)',
   borderSubtle: 'var(--pf-t--global--border--color--nonstatus--gray--default)',
 } as const;

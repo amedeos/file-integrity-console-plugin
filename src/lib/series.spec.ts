@@ -8,8 +8,10 @@ import {
   promLiteral,
   queries,
   rangeSamples,
+  resolution,
+  splitAtGaps,
   stepMillis,
-  stepPoints,
+  stepPaths,
   timespanMillis,
   toSegments,
 } from './series';
@@ -202,6 +204,52 @@ describe('dataBeginsAt', () => {
   });
 });
 
+describe('resolution', () => {
+  it('says how much time one sample stands for', () => {
+    expect(resolution('24h')).toEqual({ value: 12, unit: 'minutes' });
+    expect(resolution('7d')).toEqual({ value: 84, unit: 'minutes' });
+    // The one worth stating on screen: at 30 days a single failing sample
+    // paints six hours of band, which reads as an outage rather than a blip.
+    expect(resolution('30d')).toEqual({ value: 6, unit: 'hours' });
+  });
+});
+
+describe('splitAtGaps', () => {
+  const step = 10;
+
+  it('keeps evenly spaced samples in one run', () => {
+    const samples = [
+      { t: 0, value: 0 },
+      { t: 10, value: 0 },
+      { t: 20, value: 0 },
+    ];
+    expect(splitAtGaps(samples, step)).toEqual([samples]);
+  });
+
+  it('breaks where a sample is missing', () => {
+    const samples = [
+      { t: 0, value: 0 },
+      { t: 30, value: 0 },
+    ];
+    expect(splitAtGaps(samples, step)).toEqual([
+      [{ t: 0, value: 0 }],
+      [{ t: 30, value: 0 }],
+    ]);
+  });
+
+  it('does not break on ordinary jitter within a step and a half', () => {
+    const samples = [
+      { t: 0, value: 0 },
+      { t: 14, value: 0 },
+    ];
+    expect(splitAtGaps(samples, step)).toEqual([samples]);
+  });
+
+  it('is empty for no samples', () => {
+    expect(splitAtGaps([], step)).toEqual([]);
+  });
+});
+
 describe('toSegments', () => {
   const step = 10;
 
@@ -216,7 +264,7 @@ describe('toSegments', () => {
       { t: 20, value: 0 },
     ];
     expect(toSegments(samples, step)).toEqual([
-      { from: 0, to: 30, failed: false },
+      { from: 0, to: 30, state: 'ok' },
     ]);
   });
 
@@ -227,9 +275,9 @@ describe('toSegments', () => {
       { t: 20, value: 0 },
     ];
     expect(toSegments(samples, step)).toEqual([
-      { from: 0, to: 10, failed: false },
-      { from: 10, to: 20, failed: true },
-      { from: 20, to: 30, failed: false },
+      { from: 0, to: 10, state: 'ok' },
+      { from: 10, to: 20, state: 'failed' },
+      { from: 20, to: 30, state: 'ok' },
     ]);
   });
 
@@ -239,17 +287,44 @@ describe('toSegments', () => {
       { t: 10, value: 7 },
     ];
     expect(toSegments(samples, step)).toEqual([
-      { from: 0, to: 20, failed: true },
+      { from: 0, to: 20, state: 'failed' },
+    ]);
+  });
+
+  // The defect this whole third state exists for. Both sides say the node was
+  // failing; nothing says it was failing in between, and the band used to say
+  // so anyway — a red bar across the night the cluster was switched off.
+  it('does not paint across a gap when both sides agree', () => {
+    const samples = [
+      { t: 0, value: 1 },
+      { t: 100, value: 1 },
+    ];
+    expect(toSegments(samples, step)).toEqual([
+      { from: 0, to: 10, state: 'failed' },
+      { from: 10, to: 100, state: 'gap' },
+      { from: 100, to: 110, state: 'failed' },
+    ]);
+  });
+
+  it('names the gap when the two sides disagree, instead of leaving it blank', () => {
+    const samples = [
+      { t: 0, value: 0 },
+      { t: 100, value: 1 },
+    ];
+    expect(toSegments(samples, step)).toEqual([
+      { from: 0, to: 10, state: 'ok' },
+      { from: 10, to: 100, state: 'gap' },
+      { from: 100, to: 110, state: 'failed' },
     ]);
   });
 });
 
-describe('stepPoints', () => {
-  const plot = { width: 100, height: 10, peak: 2 };
+describe('stepPaths', () => {
+  const plot = { width: 100, height: 10, peak: 2, step: 50 };
 
   it('draws nothing when there is nothing to draw', () => {
-    expect(stepPoints([], plot)).toBe('');
-    expect(stepPoints([{ t: 5, value: 1 }], plot)).toBe('');
+    expect(stepPaths([], plot)).toEqual([]);
+    expect(stepPaths([{ t: 5, value: 1 }], plot)).toEqual([]);
   });
 
   it('holds each value until the next sample instead of sloping to it', () => {
@@ -261,9 +336,13 @@ describe('stepPoints', () => {
     // The corner at x=50 is what makes this a step: the value was 0 right up
     // to that scrape, and a diagonal would put the change halfway between two
     // scrapes, which is a time nothing happened at.
-    expect(stepPoints(samples, plot)).toBe(
-      '0.00,10.00 50.00,10.00 50.00,0.00 100.00,0.00',
-    );
+    expect(stepPaths(samples, plot)).toEqual([
+      {
+        points: '0.00,10.00 50.00,10.00 50.00,0.00 100.00,0.00',
+        from: 0,
+        to: 100,
+      },
+    ]);
   });
 
   it('emits one point per sample while the value holds', () => {
@@ -272,7 +351,9 @@ describe('stepPoints', () => {
       { t: 50, value: 2 },
       { t: 100, value: 2 },
     ];
-    expect(stepPoints(samples, plot)).toBe('0.00,0.00 50.00,0.00 100.00,0.00');
+    expect(stepPaths(samples, plot)[0].points).toBe(
+      '0.00,0.00 50.00,0.00 100.00,0.00',
+    );
   });
 
   it('draws a series of zeroes flat along the bottom rather than dividing by it', () => {
@@ -280,8 +361,27 @@ describe('stepPoints', () => {
       { t: 0, value: 0 },
       { t: 100, value: 0 },
     ];
-    expect(stepPoints(samples, { ...plot, peak: 0 })).toBe(
+    // Step widened to match the spacing: two samples a whole window apart are
+    // a gap under the default step, which is a different test than this one.
+    expect(stepPaths(samples, { ...plot, peak: 0, step: 100 })[0].points).toBe(
       '0.00,10.00 100.00,10.00',
     );
+  });
+
+  // A step line holding its value is right until there is nothing to hold it
+  // to. One path per run is what stops the line running flat through hours
+  // nobody measured, and each carries its own x range so the area under it
+  // closes where the data does rather than at the edges of the plot.
+  it('breaks into a path per run rather than running through a gap', () => {
+    const samples = [
+      { t: 0, value: 2 },
+      { t: 10, value: 2 },
+      { t: 90, value: 1 },
+      { t: 100, value: 1 },
+    ];
+    expect(stepPaths(samples, { ...plot, step: 10 })).toEqual([
+      { points: '0.00,0.00 10.00,0.00', from: 0, to: 10 },
+      { points: '90.00,5.00 100.00,5.00', from: 90, to: 100 },
+    ]);
   });
 });
