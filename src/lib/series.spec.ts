@@ -2,9 +2,11 @@ import type { PrometheusResponse } from './k8s';
 import {
   SAMPLES,
   dataBeginsAt,
+  gapBands,
   hasSeries,
   instantByLabel,
   instantValue,
+  plotSpan,
   promLiteral,
   queries,
   rangeSamples,
@@ -318,14 +320,119 @@ describe('toSegments', () => {
       { from: 100, to: 110, state: 'failed' },
     ]);
   });
+
+  // The 30-day window on the lab: one sample came back, and the band drew it
+  // across a month of green. The head is a gap like any other, and the only
+  // reason it was not drawn as one is that nothing was passing the window in.
+  it('pads the head with a gap when the data begins after the window does', () => {
+    const samples = [
+      { t: 90, value: 0 },
+      { t: 100, value: 0 },
+    ];
+    expect(toSegments(samples, step, 100)).toEqual([
+      { from: 10, to: 90, state: 'gap' },
+      { from: 90, to: 110, state: 'ok' },
+    ]);
+  });
+
+  it('pads nothing when the data covers the window', () => {
+    const samples = [
+      { t: 0, value: 0 },
+      { t: 10, value: 0 },
+    ];
+    expect(toSegments(samples, step, 20)).toEqual([
+      { from: 0, to: 20, state: 'ok' },
+    ]);
+  });
+});
+
+describe('plotSpan', () => {
+  const step = 10;
+
+  it('reaches one step past the last sample, which is the width that sample stands for', () => {
+    const samples = [
+      { t: 0, value: 0 },
+      { t: 10, value: 0 },
+    ];
+    expect(plotSpan(samples, step)).toEqual({ from: 0, to: 20 });
+  });
+
+  it('gives a lone sample a width instead of a span of zero', () => {
+    expect(plotSpan([{ t: 50, value: 1 }], step)).toEqual({ from: 50, to: 60 });
+  });
+
+  it('starts where the window starts when the data begins late', () => {
+    // Measured back from the last sample, so this needs no clock: the right
+    // edge is the last sample by construction, and having written that this
+    // was impossible is what left both panels rescaling to their contents.
+    const samples = [
+      { t: 90, value: 0 },
+      { t: 100, value: 0 },
+    ];
+    expect(plotSpan(samples, step, 100)).toEqual({ from: 10, to: 110 });
+  });
+
+  it('starts at the data when it covers the window', () => {
+    const samples = [
+      { t: 0, value: 0 },
+      { t: 10, value: 0 },
+    ];
+    expect(plotSpan(samples, step, 20)).toEqual({ from: 0, to: 20 });
+  });
+
+  it('has nothing to span when there are no samples', () => {
+    expect(plotSpan([], step, 100)).toBeUndefined();
+  });
+});
+
+describe('gapBands', () => {
+  it('places a gap between two runs in the plot coordinates', () => {
+    const samples = [
+      { t: 0, value: 0 },
+      { t: 100, value: 0 },
+    ];
+    // Width chosen to match the span, so the coordinates are the times and the
+    // arithmetic under test stays visible.
+    expect(gapBands(samples, { width: 110, step: 10 })).toEqual([
+      { from: 10, to: 100, x: 10, width: 90 },
+    ]);
+  });
+
+  it('places the head of a window that begins late, which no pair of runs can show', () => {
+    const samples = [
+      { t: 90, value: 0 },
+      { t: 100, value: 0 },
+    ];
+    expect(gapBands(samples, { width: 100, step: 10, window: 100 })).toEqual([
+      { from: 10, to: 90, x: 0, width: 80 },
+    ]);
+  });
+
+  it('finds nothing to shade when collection was continuous', () => {
+    const samples = [
+      { t: 0, value: 0 },
+      { t: 10, value: 0 },
+    ];
+    expect(gapBands(samples, { width: 100, step: 10, window: 20 })).toEqual([]);
+  });
 });
 
 describe('stepPaths', () => {
   const plot = { width: 100, height: 10, peak: 2, step: 50 };
 
-  it('draws nothing when there is nothing to draw', () => {
+  it('draws nothing when there are no samples', () => {
     expect(stepPaths([], plot)).toEqual([]);
-    expect(stepPaths([{ t: 5, value: 1 }], plot)).toEqual([]);
+  });
+
+  // The defect, and it took a browser to find because jsdom cannot see a
+  // shape: this used to give up whenever the first and last sample coincided,
+  // so the 30-day window — which returned exactly one point on the lab — was
+  // reported as an empty window while the band beside it drew that same point
+  // across a month.
+  it('draws a single sample as the step it stands for, rather than as nothing', () => {
+    expect(stepPaths([{ t: 5, value: 1 }], plot)).toEqual([
+      { points: '0.00,5.00 100.00,5.00', from: 0, to: 100 },
+    ]);
   });
 
   it('holds each value until the next sample instead of sloping to it', () => {
@@ -334,26 +441,30 @@ describe('stepPaths', () => {
       { t: 50, value: 2 },
       { t: 100, value: 2 },
     ];
-    // The corner at x=50 is what makes this a step: the value was 0 right up
-    // to that scrape, and a diagonal would put the change halfway between two
-    // scrapes, which is a time nothing happened at.
+    // The corner is what makes this a step: the value was 0 right up to that
+    // scrape, and a diagonal would put the change halfway between two scrapes,
+    // which is a time nothing happened at.
+    //
+    // Three samples occupy three steps, not two — the last one covers the step
+    // that follows it, exactly as `toSegments` has always had it — so the plot
+    // is 150 wide in time and every x is scaled by two thirds.
     expect(stepPaths(samples, plot)).toEqual([
       {
-        points: '0.00,10.00 50.00,10.00 50.00,0.00 100.00,0.00',
+        points: '0.00,10.00 33.33,10.00 33.33,0.00 66.67,0.00 100.00,0.00',
         from: 0,
         to: 100,
       },
     ]);
   });
 
-  it('emits one point per sample while the value holds', () => {
+  it('emits one point per sample while the value holds, and one for the last step', () => {
     const samples = [
       { t: 0, value: 2 },
       { t: 50, value: 2 },
       { t: 100, value: 2 },
     ];
     expect(stepPaths(samples, plot)[0].points).toBe(
-      '0.00,0.00 50.00,0.00 100.00,0.00',
+      '0.00,0.00 33.33,0.00 66.67,0.00 100.00,0.00',
     );
   });
 
@@ -365,8 +476,20 @@ describe('stepPaths', () => {
     // Step widened to match the spacing: two samples a whole window apart are
     // a gap under the default step, which is a different test than this one.
     expect(stepPaths(samples, { ...plot, peak: 0, step: 100 })[0].points).toBe(
-      '0.00,10.00 100.00,10.00',
+      '0.00,10.00 50.00,10.00 100.00,10.00',
     );
+  });
+
+  it('draws the window rather than the data when the window is given', () => {
+    // Two samples at the end of a window ten times their span: the line has to
+    // sit in the last tenth of the plot, not fill it.
+    const samples = [
+      { t: 90, value: 2 },
+      { t: 100, value: 2 },
+    ];
+    expect(stepPaths(samples, { ...plot, step: 10, window: 100 })).toEqual([
+      { points: '80.00,0.00 90.00,0.00 100.00,0.00', from: 80, to: 100 },
+    ]);
   });
 
   // A step line holding its value is right until there is nothing to hold it
@@ -380,9 +503,10 @@ describe('stepPaths', () => {
       { t: 90, value: 1 },
       { t: 100, value: 1 },
     ];
-    expect(stepPaths(samples, { ...plot, step: 10 })).toEqual([
-      { points: '0.00,0.00 10.00,0.00', from: 0, to: 10 },
-      { points: '90.00,5.00 100.00,5.00', from: 90, to: 100 },
+    // Width matched to the span, so the coordinates read as the times.
+    expect(stepPaths(samples, { ...plot, width: 110, step: 10 })).toEqual([
+      { points: '0.00,0.00 10.00,0.00 20.00,0.00', from: 0, to: 20 },
+      { points: '90.00,5.00 100.00,5.00 110.00,5.00', from: 90, to: 110 },
     ]);
   });
 });

@@ -92,11 +92,15 @@ const useHistory = (query: string, timespan: Timespan): History => {
 
   return React.useMemo(() => {
     const step = stepMillis(timespan);
+    const window = timespanMillis(timespan);
     const samples = rangeSamples(response);
     return {
       samples,
-      segments: toSegments(samples, step),
-      beginsAt: dataBeginsAt(samples, timespanMillis(timespan), step),
+      // The window goes in so the band is drawn in its proportions rather than
+      // in its data's: without it a 30-day window holding one sample fills its
+      // width, and the picture means something different at every density.
+      segments: toSegments(samples, step, window),
+      beginsAt: dataBeginsAt(samples, window, step),
       sparse: returnedFraction(samples),
       loaded,
       error,
