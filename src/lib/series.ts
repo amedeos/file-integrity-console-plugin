@@ -26,6 +26,14 @@ export type Timespan = '24h' | '7d' | '30d';
 
 export const TIMESPANS: readonly Timespan[] = ['24h', '7d', '30d'] as const;
 
+/**
+ * The longest window the selector offers, which is also how far back the
+ * availability probe looks. Derived rather than spelled again, so adding a
+ * window to `TIMESPANS` cannot leave the probe looking at less than the panels
+ * can show.
+ */
+const WIDEST_TIMESPAN: Timespan = TIMESPANS[TIMESPANS.length - 1] ?? '30d';
+
 const HOUR_MS = 60 * 60 * 1000;
 
 const TIMESPAN_MS: Record<Timespan, number> = {
@@ -67,8 +75,29 @@ export const queries = {
    * per-node query cannot answer it: `node_failed{node="x"}` is also empty when
    * that particular node has no metric yet, which is a different situation with
    * a different remedy. Empty here, and only here, means nobody is scraping.
+   *
+   * **`count_over_time` and not a bare `count`, and this is the whole point of
+   * the query.** An instant query answers at one instant, and Prometheus puts a
+   * value there only if a sample exists within its five-minute lookback — the
+   * same rule that makes a sparse window sparse, except that here the panel it
+   * produces does not merely show less. It shows the state that says nobody is
+   * collecting anything, and tells a cluster administrator to add a label.
+   *
+   * Measured on the lab, where collection stops overnight: the bare `count`
+   * answers empty at 18:10, 20:10, 22:10 and 04:10 and answers 3 at 10:10,
+   * while `count_over_time` over the same instants answers 3 throughout. So the
+   * plugin spent every night instructing someone to set a label that had been
+   * set for weeks. On a cluster that collects continuously it takes one late
+   * scrape.
+   *
+   * The window is the widest the selector offers, because that is the span over
+   * which "nothing at all came back" is a fair basis for saying nobody is
+   * collecting. Anything shorter answers a different question — whether
+   * collection is current — and the panels already say that for themselves, in
+   * grey.
    */
-  scraped: (): string => `count(${METRICS.nodeFailed})`,
+  scraped: (): string =>
+    `count(count_over_time(${METRICS.nodeFailed}[${WIDEST_TIMESPAN}]))`,
 
   /**
    * One node's 0/1 gauge. `max by (node)` collapses the series the operator's

@@ -1461,9 +1461,52 @@ And the `stepPaths` expectations all moved: three samples occupy three steps,
 not two, so every x is scaled by two thirds of what it was. Both are the change
 working, not the tests being bent to fit it.
 
-**Not yet seen in a browser.** jsdom cannot measure any of this, which is
-exactly how all three got out in the first place, so the 24-hour, 7-day and
-30-day windows want looking at on the lab before this is called done.
+**Seen in a browser** on the published `release-4.16` build, all three windows,
+on the overview and on a node. At 24 hours: a grey head, 34 of 120 points, the
+axis reading a full day. At 7 days: mostly grey with thin marks where
+collection happened, 7 of 120. At 30 days: **grey across the whole width with a
+red sliver at the right**, and *"1 of the 120 points asked for came back"*.
+Yesterday that same single sample was a month of green.
+
+### An unscraped cluster is not a late scrape — 3 August 2026
+
+Found in the same browser round, and it is not today's doing: the availability
+probe has always been an instant query, `count(node_failed)`. An instant query
+answers at one instant, and Prometheus puts a value there only if a sample
+falls within its five-minute lookback — the same rule already written down two
+sections above for range queries.
+
+Everywhere else that rule makes a panel show less. Here it makes the plugin
+show *"Nothing is collecting the File Integrity Operator's metrics"* and tell a
+cluster administrator to run `oc label namespace openshift-file-integrity
+openshift.io/cluster-monitoring=true` — on a namespace that has carried that
+label, set to `true`, for weeks. The remedy is confidently wrong, which is
+worse than an empty chart.
+
+Measured against the lab's Thanos, the same query at five instants:
+
+| instant (UTC) | `count(node_failed)` | `count(count_over_time(node_failed[24h]))` |
+|---|---|---|
+| 10:10 | 3 | 3 |
+| 04:10 | **empty** | 3 |
+| 2 Aug 22:10 | **empty** | 3 |
+| 2 Aug 20:10 | **empty** | 3 |
+| 2 Aug 18:10 | **empty** | 3 |
+
+So on this lab the plugin gave that instruction every night. On a cluster that
+collects continuously it takes one late scrape.
+
+The probe now asks `count(count_over_time(node_failed[30d]))` — the widest
+window the selector offers, derived from `TIMESPANS` rather than spelled again,
+because that is the span over which "nothing came back at all" is a fair basis
+for saying nobody is collecting. Anything shorter answers a different question,
+whether collection is *current*, and the panels already answer that themselves,
+in grey.
+
+Both directions checked against the cluster, not reasoned about: the new query
+answers 3 at every one of those instants, and still answers **empty** for a
+metric name that does not exist. A probe that can no longer report an unscraped
+cluster would have traded one wrong state for another.
 
 ### Still to verify
 
