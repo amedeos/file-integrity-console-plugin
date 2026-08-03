@@ -272,6 +272,49 @@ export const splitAtGaps = (samples: Sample[], step: number): Sample[][] => {
   return runs;
 };
 
+/**
+ * The stretch of time a panel draws, which is the *window* and not the data.
+ *
+ * This is the correction to the mistake that produced the whole of this
+ * section. Both panels used to run their coordinate space from the first
+ * sample to the last, so whatever came back filled the width: on the lab the
+ * 30-day window returned a single point and the band drew a month of green
+ * from an observation taken that afternoon. A window is a fixed length of
+ * time, and a band that rescales to its contents cannot be read at all — the
+ * same picture means one thing at 120 points and another at one.
+ *
+ * The window's start is `(last sample + one step) − window`, so this needs no
+ * clock: the last sample is the right-hand edge by construction, exactly as
+ * `dataBeginsAt` already assumed. Having written that this was impossible
+ * without knowing the time is what left the rescaling in place for a week.
+ *
+ * The head is only widened when `dataBeginsAt` says the data starts late — the
+ * same test, deliberately, so the grey stretch at the left and the sentence
+ * underneath it can never disagree about whether there is one.
+ */
+export const plotSpan = (
+  samples: Sample[],
+  step: number,
+  window?: number,
+): { from: number; to: number } | undefined => {
+  const first = samples.at(0)?.t;
+  const last = samples.at(-1)?.t;
+  if (first === undefined || last === undefined) {
+    return undefined;
+  }
+  // A sample stands for the step that follows it, so the drawn extent reaches
+  // one step past the last one — which is also what makes a lone sample have a
+  // width at all.
+  const to = last + step;
+  if (
+    window !== undefined &&
+    dataBeginsAt(samples, window, step) !== undefined
+  ) {
+    return { from: to - window, to };
+  }
+  return { from: first, to };
+};
+
 /** What a strip is made of: a measured run, or a stretch of nothing. */
 export type SegmentState = 'failed' | 'ok' | 'gap';
 
@@ -312,21 +355,34 @@ export interface StepPath {
  * it is floored at one — a series of all zeroes then draws flat along the
  * bottom, which is the truth.
  *
- * Returns an empty array when there is nothing to draw, which callers check
- * before rendering an axis around it.
+ * **A run reaches one step past its last sample**, which is what `toSegments`
+ * has always done next door and what this used to leave out. It matters twice:
+ * the two panels drew the same data at two different widths, and a run of one
+ * sample had no width at all. That last case is not hypothetical — it is what
+ * a 30-day window returned on the lab, and the panel reported it as an empty
+ * window while the band beside it drew the same point across a month.
+ *
+ * Returns an empty array only when there are no samples. One sample is a
+ * drawable thing; saying otherwise was the defect.
  */
 export const stepPaths = (
   samples: Sample[],
-  plot: { width: number; height: number; peak: number; step: number },
+  plot: {
+    width: number;
+    height: number;
+    peak: number;
+    step: number;
+    /** The window asked for, so a short answer draws short. See `plotSpan`. */
+    window?: number;
+  },
 ): StepPath[] => {
-  const first = samples.at(0)?.t;
-  const last = samples.at(-1)?.t;
-  if (first === undefined || last === undefined || last <= first) {
+  const span = plotSpan(samples, plot.step, plot.window);
+  if (span === undefined) {
     return [];
   }
-  const span = last - first;
+  const width = span.to - span.from;
   const peak = Math.max(plot.peak, 1);
-  const scaleX = (t: number) => ((t - first) / span) * plot.width;
+  const scaleX = (t: number) => ((t - span.from) / width) * plot.width;
 
   return splitAtGaps(samples, plot.step).map((run) => {
     const points: string[] = [];
@@ -340,10 +396,15 @@ export const stepPaths = (
       points.push(`${x.toFixed(2)},${y.toFixed(2)}`);
       previousY = y;
     });
+    const start = run.at(0)?.t ?? span.from;
+    const end = (run.at(-1)?.t ?? span.from) + plot.step;
+    if (previousY !== undefined) {
+      points.push(`${scaleX(end).toFixed(2)},${previousY.toFixed(2)}`);
+    }
     return {
       points: points.join(' '),
-      from: scaleX(run.at(0)?.t ?? first),
-      to: scaleX(run.at(-1)?.t ?? first),
+      from: scaleX(start),
+      to: scaleX(end),
     };
   });
 };
@@ -363,8 +424,18 @@ export const stepPaths = (
  * worse than incomplete: it is an assertion about a period nobody measured.
  * When the two sides disagreed the gap was instead left blank — which is honest
  * by accident and unreadable by design, since nothing said what blank meant.
+ *
+ * **The head of the window is a gap like any other**, and pass `window` to have
+ * it drawn as one. Without it the first segment starts at the first sample and
+ * the band silently rescales, so a window that came back a tenth full still
+ * fills its width; the grey head is what makes a sparse window look sparse
+ * rather than merely coarse.
  */
-export const toSegments = (samples: Sample[], step: number): Segment[] => {
+export const toSegments = (
+  samples: Sample[],
+  step: number,
+  window?: number,
+): Segment[] => {
   const segments: Segment[] = [];
   splitAtGaps(samples, step).forEach((run) => {
     const previousEnd = segments.at(-1)?.to;
@@ -382,5 +453,50 @@ export const toSegments = (samples: Sample[], step: number): Segment[] => {
       }
     });
   });
+
+  const span = plotSpan(samples, step, window);
+  const first = segments.at(0)?.from;
+  if (span !== undefined && first !== undefined && span.from < first) {
+    segments.unshift({ from: span.from, to: first, state: 'gap' });
+  }
   return segments;
+};
+
+/** A stretch nobody measured, both in time and in the plot's own coordinates. */
+export interface GapBand {
+  from: number;
+  to: number;
+  x: number;
+  width: number;
+}
+
+/**
+ * The uncollected stretches of a plot, ready to be drawn over it.
+ *
+ * The band gets these for free — they are its grey segments — and the line
+ * chart used to work them out for itself, from the space left between one path
+ * and the next. That could only ever find a gap *between* two runs, so the head
+ * of a window that begins late was drawn by neither panel. Both now come from
+ * the same `toSegments` call, which is also the only way the shaded stretch,
+ * the break in the line and the times in the tooltip cannot drift apart.
+ */
+export const gapBands = (
+  samples: Sample[],
+  plot: { width: number; step: number; window?: number },
+): GapBand[] => {
+  const span = plotSpan(samples, plot.step, plot.window);
+  if (span === undefined) {
+    return [];
+  }
+  const scaleX = (t: number) =>
+    ((t - span.from) / (span.to - span.from)) * plot.width;
+
+  return toSegments(samples, plot.step, plot.window)
+    .filter((segment) => segment.state === 'gap')
+    .map((segment) => ({
+      from: segment.from,
+      to: segment.to,
+      x: scaleX(segment.from),
+      width: scaleX(segment.to) - scaleX(segment.from),
+    }));
 };

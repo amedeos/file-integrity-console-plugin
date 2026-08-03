@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { FailingNodesSparkline } from './FailingNodesSparkline';
-import { stepMillis } from '../lib/series';
+import { SAMPLES, stepMillis } from '../lib/series';
 import type { Sample } from '../lib/series';
 
 /*
@@ -13,9 +13,20 @@ import type { Sample } from '../lib/series';
 
 const step = stepMillis('24h');
 
-/** Samples one step apart, which is what an uninterrupted window looks like. */
+/** Samples one step apart: a run of collection, not necessarily a full window. */
 const run = (...values: number[]): Sample[] =>
   values.map((value, i) => ({ t: i * step, value }));
+
+/**
+ * A window that came back as full as it was asked for.
+ *
+ * A handful of samples is *not* that, and the difference is now visible: the
+ * panel draws the window rather than the data, so three points in a 24-hour
+ * window are three points and a great deal of grey. Anything asserting that
+ * nothing is missing has to hand it a whole window.
+ */
+const fullWindow = (value: number): Sample[] =>
+  Array.from({ length: SAMPLES }, (_, i) => ({ t: i * step, value }));
 
 describe('FailingNodesSparkline', () => {
   it('says so when there is nothing to draw', () => {
@@ -28,7 +39,7 @@ describe('FailingNodesSparkline', () => {
   it('renders its summary rather than only speaking it', () => {
     // The first version put this in the aria-label alone, which is backwards:
     // a chart that needs a sentence needs it on the screen.
-    render(<FailingNodesSparkline samples={run(0, 2, 1)} timespan="24h" />);
+    render(<FailingNodesSparkline samples={fullWindow(2)} timespan="24h" />);
 
     expect(
       screen.getByText(/^Between 0 and \{\{peak\}\} nodes were reporting/),
@@ -36,22 +47,53 @@ describe('FailingNodesSparkline', () => {
   });
 
   it('stays quiet about collection when the window is continuous', () => {
-    render(<FailingNodesSparkline samples={run(1, 1, 1)} timespan="24h" />);
+    render(<FailingNodesSparkline samples={fullWindow(1)} timespan="24h" />);
 
     expect(screen.queryByText(/Nothing was collected/)).toBeNull();
     expect(screen.queryByText('Not collected')).toBeNull();
+  });
+
+  it('draws a single sample instead of reporting an empty window', () => {
+    // Exactly what the 30-day window returned on the lab. `stepPaths` gave up
+    // on a span of zero, so the panel said there was nothing where there was
+    // one point — while the band beside it drew that same point over a month.
+    render(
+      <FailingNodesSparkline samples={[{ t: 0, value: 2 }]} timespan="30d" />,
+    );
+
+    expect(screen.queryByText('No samples in this window yet.')).toBeNull();
+    expect(screen.getByRole('img')).toBeInTheDocument();
+  });
+
+  it('marks the head of a window whose data begins late', () => {
+    // Three samples in a 24-hour window are three samples, not a day of them.
+    // Nothing but the window's own length can say that, which is why the panel
+    // now knows it.
+    render(<FailingNodesSparkline samples={run(1, 1, 1)} timespan="24h" />);
+
+    expect(screen.getByText(/Nothing was collected during/)).toBeVisible();
+    expect(screen.getByText('Not collected')).toBeVisible();
+  });
+
+  it('stops naming the window in the summary when the data does not cover it', () => {
+    // "during the last 30 days" from four points is a claim about the
+    // twenty-nine days nobody looked at.
+    render(<FailingNodesSparkline samples={run(1, 1, 1)} timespan="30d" />);
+
+    expect(
+      screen.getByText(/nodes were reporting changes in what was collected/),
+    ).toBeVisible();
   });
 
   it('names the stretch it did not measure instead of drawing through it', () => {
     // Two samples either side of a hole, both saying two nodes were failing.
     // The step line used to hold that value straight across the hole, which is
     // a claim about hours nobody scraped.
-    const samples: Sample[] = [
-      { t: 0, value: 2 },
-      { t: step, value: 2 },
-      { t: 8 * step, value: 2 },
-      { t: 9 * step, value: 2 },
-    ];
+    //
+    // A whole window with a hole punched in it, rather than four samples: the
+    // head of a short window is a gap too now, and this test is about the one
+    // in the middle.
+    const samples: Sample[] = fullWindow(2).filter((_, i) => i < 40 || i > 60);
     render(<FailingNodesSparkline samples={samples} timespan="24h" />);
 
     expect(screen.getByText(/Nothing was collected during/)).toBeVisible();
@@ -75,11 +117,11 @@ describe('FailingNodesSparkline', () => {
     ).toBeVisible();
   });
 
-  it('states where the window begins without claiming why', () => {
+  it('says where the data begins without claiming why', () => {
     const { rerender } = render(
       <FailingNodesSparkline samples={run(0, 1)} timespan="30d" />,
     );
-    expect(screen.queryByText(/This window begins at/)).toBeNull();
+    expect(screen.queryByText(/Data begins at/)).toBeNull();
 
     rerender(
       <FailingNodesSparkline
@@ -88,7 +130,9 @@ describe('FailingNodesSparkline', () => {
         timespan="30d"
       />,
     );
-    expect(screen.getByText(/This window begins at/)).toBeVisible();
+    // "This window begins at" was the old wording, and it is now the axis that
+    // says where the window begins — the sentence is about the data.
+    expect(screen.getByText(/Data begins at/)).toBeVisible();
   });
 
   it('says how much of the window came back, and only when some is missing', () => {

@@ -39,7 +39,29 @@ describe('StatusTimeline', () => {
     );
 
     expect(
-      screen.getByRole('img', { name: /No changes detected on this node/ }),
+      screen.getByRole('img', {
+        name: /No changes detected on this node during/,
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it('stops naming the window when the data does not cover it', () => {
+    // The 30-day band on the lab: one sample, drawn full width, saying "no
+    // changes detected on this node during the last 30 days" — a month
+    // asserted from one observation taken that afternoon. The head of the
+    // window is grey now, and the sentence has to match it.
+    render(
+      <StatusTimeline
+        segments={segments('gap', 'ok')}
+        failures={0}
+        timespan="30d"
+      />,
+    );
+
+    expect(
+      screen.getByRole('img', {
+        name: /No changes detected on this node in what was collected\./,
+      }),
     ).toBeInTheDocument();
   });
 
@@ -150,11 +172,11 @@ describe('StatusTimeline', () => {
     expect(screen.queryByText(/Entered the failed state/)).toBeNull();
   });
 
-  it('states where the window begins without claiming why', () => {
+  it('says where the data begins without claiming why', () => {
     const { rerender } = render(
       <StatusTimeline segments={segments('ok')} failures={0} timespan="30d" />,
     );
-    expect(screen.queryByText(/This window begins at/)).toBeNull();
+    expect(screen.queryByText(/Data begins at/)).toBeNull();
 
     rerender(
       <StatusTimeline
@@ -164,7 +186,9 @@ describe('StatusTimeline', () => {
         timespan="30d"
       />,
     );
-    expect(screen.getByText(/This window begins at/)).toBeVisible();
+    // "This window begins at" was the old wording. The window now begins where
+    // the band does, grey; what begins late is the data.
+    expect(screen.getByText(/Data begins at/)).toBeVisible();
   });
 
   it('says how much of the window came back, and only when some is missing', () => {
