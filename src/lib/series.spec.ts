@@ -65,8 +65,21 @@ describe('queries', () => {
   // against a cluster too, rather than merely type-checking.
   it('probes availability without filtering on anything', () => {
     expect(queries.scraped()).toBe(
-      'count(file_integrity_operator_node_failed)',
+      'count(count_over_time(file_integrity_operator_node_failed[30d]))',
     );
+  });
+
+  // An instant query answers at one instant, and Prometheus puts a value there
+  // only if a sample falls within its five-minute lookback. The bare `count`
+  // this replaced therefore answered empty every night on the lab — and empty
+  // is the state that tells a cluster administrator to add a label that was
+  // already set. Measured: empty at 18:10, 20:10, 22:10 and 04:10, 3 at 10:10,
+  // against a `count_over_time` answering 3 at every one of them.
+  it('asks over a window, because an instant is a claim about five minutes', () => {
+    expect(queries.scraped()).toContain('count_over_time');
+    // The widest window the selector offers, so the probe can never look at
+    // less than a panel can show.
+    expect(queries.scraped()).toContain('[30d]');
   });
 
   it('collapses the operator pod out of a per-node gauge', () => {
