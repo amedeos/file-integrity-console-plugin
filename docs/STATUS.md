@@ -1362,7 +1362,9 @@ and nothing about its shape says which it is. `returnedFraction` is silent when
 the window is full, so a healthy cluster sees neither line.
 
 What is still not drawn is the *head* of a window that begins late: the band
-rescales to the samples it has, so 24 hours of axis can cover twenty.
+rescales to the samples it has, so 24 hours of axis can cover twenty. (It is
+drawn now — see two sections below. The paragraph stays as it was written
+because the correction under it is the useful part.)
 
 **That paragraph first said this would need a clock, and that was wrong** — the
 correction is left here rather than tidied away, because the mistake is the
@@ -1406,6 +1408,62 @@ follow, and they are the next thing to do:
 Each is arithmetic in `src/lib/series.ts`, so each is testable against numbers;
 none of the three is visible to jsdom, which is why all three reached a browser
 first.
+
+### The window is what is drawn, not the data — 3 August 2026
+
+All three are done, and they turned out to be one change: **a panel draws a
+window, and the window is a fixed length of time.** Both panels ran their
+coordinate space from the first sample to the last, so whatever came back
+filled the width — and a picture that means one thing at 120 points and
+another at one cannot be read at all.
+
+`plotSpan` is the whole of it. It answers where a plot begins and ends, in
+time: the end is one step past the last sample, because a sample stands for the
+step that follows it, and the start is that end minus the window — measured
+backwards, so nothing here needs a clock. It defers to `dataBeginsAt` for
+*whether* the window begins earlier than the data, deliberately the same test,
+so the grey stretch at the left and the sentence beneath it can never disagree
+about there being one.
+
+What each of the three cost, once that existed:
+
+1. **The head.** `toSegments` takes the window and pushes a `gap` segment in
+   front of the first run. The 30-day band is now a sliver of green at the
+   right in a field of grey. Nothing else in the band changed — it already drew
+   whatever segments it was handed, and the grey state and its legend entry
+   have been there since the round before.
+2. **The summary.** Both panels name the window only when there is no gap in
+   what they are showing, and otherwise say *"in what was collected"*. The
+   check is `uncollected.length === 0`, which is the same fact the picture
+   shows, so the words cannot drift from it.
+3. **The single sample.** `stepPaths` used to bail out when the first and last
+   sample coincided. It now ends each run one step past its last sample — which
+   is what `toSegments` had always done, so the two panels were drawing the
+   same data at two different widths as well — and a lone sample has a width
+   because a lone sample covers a step.
+
+One thing fell out that was not on the list. The line chart worked its own gaps
+out from the space left between one path and the next, which can only ever find
+a gap *between* two runs — so the head would have been drawn by the band and
+not by the sparkline. `gapBands` now derives both from the same `toSegments`
+call.
+
+And one string changed rather than being added: *"This window begins at …"* is
+now *"Data begins at …"*. With the head drawn, the window begins where the band
+does; what begins late is the data, and saying which is the point of drawing
+the head at all.
+
+Two notes for anyone reading the tests. Several sparkline cases had to be given
+a **whole** window of samples — `fullWindow` in the spec — because three
+samples in a 24-hour window are now three samples and a great deal of grey, and
+a test asserting that nothing is missing has to hand it a window that is not.
+And the `stepPaths` expectations all moved: three samples occupy three steps,
+not two, so every x is scaled by two thirds of what it was. Both are the change
+working, not the tests being bent to fit it.
+
+**Not yet seen in a browser.** jsdom cannot measure any of this, which is
+exactly how all three got out in the first place, so the 24-hour, 7-day and
+30-day windows want looking at on the lab before this is called done.
 
 ### Still to verify
 
