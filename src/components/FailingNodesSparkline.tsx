@@ -5,7 +5,14 @@ import { Timestamp } from '../lib/k8s';
 import { I18N_NS } from '../constants';
 import { CSS, TOKEN } from '../lib/styles';
 import { LegendItem } from './LegendItem';
-import { resolution, splitAtGaps, stepMillis, stepPaths } from '../lib/series';
+import {
+  gapBands,
+  plotSpan,
+  resolution,
+  stepMillis,
+  stepPaths,
+  timespanMillis,
+} from '../lib/series';
 import type { Sample, Timespan } from '../lib/series';
 
 const WIDTH = 1000;
@@ -42,6 +49,14 @@ const HEIGHT = 60;
  * is right while there is a next sample and becomes a claim about the night the
  * cluster was switched off. The line now breaks, and the stretch it skips is
  * marked and named.
+ *
+ * A fifth, which was the same mistake made twice over: the plot ran from the
+ * first sample to the last, so a window that came back nearly empty was drawn
+ * at full width, and a window that came back as a *single* sample had a width
+ * of zero and was reported as no samples at all. Both are the 30-day window on
+ * the lab. The plot is now drawn in the window's proportions — a lone sample
+ * is a sliver of line in a field of grey, which is what one point in thirty
+ * days looks like.
  */
 export const FailingNodesSparkline: React.FC<{
   samples: Sample[];
@@ -52,17 +67,22 @@ export const FailingNodesSparkline: React.FC<{
 }> = ({ samples, beginsAt, sparse, timespan }) => {
   const { t } = useTranslation(I18N_NS);
 
-  const from = samples.at(0)?.t;
+  const step = stepMillis(timespan);
+  // Not `window`: that is the DOM's, and this file is rendered in a browser.
+  const windowMillis = timespanMillis(timespan);
+
   const to = samples.at(-1)?.t;
+  const span = plotSpan(samples, step, windowMillis);
   const peak = Math.max(...samples.map((s) => s.value), 1);
   const paths = stepPaths(samples, {
     width: WIDTH,
     height: HEIGHT,
     peak,
-    step: stepMillis(timespan),
+    step,
+    window: windowMillis,
   });
 
-  if (from === undefined || to === undefined || paths.length === 0) {
+  if (to === undefined || span === undefined || paths.length === 0) {
     return (
       <span className={CSS.textSecondary}>
         {t('No samples in this window yet.')}
@@ -70,16 +90,12 @@ export const FailingNodesSparkline: React.FC<{
     );
   }
 
-  // Whatever lies between one path and the next was not measured. Both come
-  // out of the same split, so the shaded stretch, the break in the line and
-  // the times in the tooltip cannot disagree about where the data stops.
-  const runs = splitAtGaps(samples, stepMillis(timespan));
-  const gaps = paths.slice(1).map((path, index) => ({
-    x: paths[index].to,
-    width: path.from - paths[index].to,
-    from: runs[index]?.at(-1)?.t ?? 0,
-    to: runs[index + 1]?.at(0)?.t ?? 0,
-  }));
+  // Whatever the line does not cover was not measured — including the head of
+  // a window that begins late, which the old arithmetic could not see because
+  // it looked only at the space between one path and the next. Both these and
+  // the paths are scaled from the same window, so the shaded stretch, the
+  // break in the line and the times in the tooltip cannot disagree.
+  const gaps = gapBands(samples, { width: WIDTH, step, window: windowMillis });
 
   const latest = samples.at(-1)?.value ?? 0;
 
@@ -95,11 +111,19 @@ export const FailingNodesSparkline: React.FC<{
       ? t('One sample every {{count}} hour(s).', { count: grain.value })
       : t('One sample every {{count}} minute(s).', { count: grain.value });
 
+  // The window is named only where the data covers it, for the same reason the
+  // band next door stopped naming it: a sentence about the last 30 days built
+  // from four points is a claim about twenty-nine days nobody looked at.
   const summary = [
-    t(
-      'Between 0 and {{peak}} nodes were reporting changes during {{window}}; {{latest}} at the last sample.',
-      { peak, latest, window: windowLabel[timespan] },
-    ),
+    gaps.length === 0
+      ? t(
+          'Between 0 and {{peak}} nodes were reporting changes during {{window}}; {{latest}} at the last sample.',
+          { peak, latest, window: windowLabel[timespan] },
+        )
+      : t(
+          'Between 0 and {{peak}} nodes were reporting changes in what was collected; {{latest}} at the last sample.',
+          { peak, latest },
+        ),
     gaps.length === 0
       ? ''
       : t('Nothing was collected during {{count}} period(s).', {
@@ -188,8 +212,15 @@ export const FailingNodesSparkline: React.FC<{
         justifyContent={{ default: 'justifyContentSpaceBetween' }}
         className={`${CSS.marginTopSm} ${CSS.fontSizeSm} ${CSS.textSecondary}`}
       >
+        {/*
+          The window's start, not the first sample's time. They are the same
+          thing only when the window came back full, and when they are not it
+          is the axis that says so — the plot is drawn in the window's
+          proportions, so an axis labelled with the data would misplace every
+          point on it.
+        */}
         <FlexItem>
-          <Timestamp timestamp={new Date(from).toISOString()} />
+          <Timestamp timestamp={new Date(span.from).toISOString()} />
         </FlexItem>
         {/*
           The last sample, not the word "now": collection stopping is exactly
@@ -217,7 +248,7 @@ export const FailingNodesSparkline: React.FC<{
 
       {beginsAt === undefined ? null : (
         <p className={`${CSS.fontSizeSm} ${CSS.textSecondary}`}>
-          {t('This window begins at {{when}}: nothing earlier came back.', {
+          {t('Data begins at {{when}}: nothing earlier came back.', {
             when: new Date(beginsAt).toLocaleString(),
           })}
         </p>

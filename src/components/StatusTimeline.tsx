@@ -33,6 +33,13 @@ import type { Segment, Timespan } from '../lib/series';
  * because it is a claim rather than a silence. Grey says nothing was collected,
  * and the legend says what grey is.
  *
+ * The head of the window is grey for the same reason, and was missed for
+ * longer. The band ran from its first sample to its last, so it filled its
+ * width whatever it held: at 30 days the lab returned a single point and this
+ * drew a month of green from one afternoon's observation. The segments now
+ * start where the window does — see `plotSpan` — so a sparse window looks
+ * sparse instead of merely coarse.
+ *
  * The band carries an `aria-label` saying in words what it shows. That is not
  * only for screen readers: jsdom measures every element as zero-sized, so the
  * label is the only part of this a test can meaningfully assert.
@@ -75,11 +82,19 @@ export const StatusTimeline: React.FC<{
   // Said out loud rather than left to the colours, because it changes what the
   // sentence before it is worth: "no changes detected" over a window a third of
   // which was never scraped is a claim about the third that was.
+  //
+  // Which is why the window is named only when the data covers it. A 30-day
+  // band built from one sample said "no changes detected on this node during
+  // the last 30 days" — a month asserted from an observation taken that
+  // afternoon, and contradicted two rows below by the line reporting that 1 of
+  // 120 points came back. The clause has to go, not be qualified.
   const summary = [
     failing.length === 0
-      ? t('No changes detected on this node during {{window}}.', {
-          window: windowLabel[timespan],
-        })
+      ? uncollected.length === 0
+        ? t('No changes detected on this node during {{window}}.', {
+            window: windowLabel[timespan],
+          })
+        : t('No changes detected on this node in what was collected.')
       : t('Changes were being reported during {{count}} period(s).', {
           count: failing.length,
         }),
@@ -196,9 +211,14 @@ export const StatusTimeline: React.FC<{
           : null}
       </p>
 
+      {/*
+        "This window begins at" would now contradict the axis above it. The
+        window begins where the band does, grey; what begins late is the data,
+        and saying which is the whole point of drawing the head at all.
+      */}
       {beginsAt === undefined ? null : (
         <p className={`${CSS.fontSizeSm} ${CSS.textSecondary}`}>
-          {t('This window begins at {{when}}: nothing earlier came back.', {
+          {t('Data begins at {{when}}: nothing earlier came back.', {
             when: new Date(beginsAt).toLocaleString(),
           })}
         </p>
