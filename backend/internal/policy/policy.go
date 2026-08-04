@@ -70,6 +70,15 @@ func New(globs []string) (*Policy, error) {
 //
 // Ordering matters: "**" has to be consumed before the single "*" case, or the
 // first star would match a path separator and the second would be left over.
+//
+// The default case quotes a one-byte *slice*, never string(g[i]). That
+// conversion is from an integer, so it yields the UTF-8 encoding of the code
+// point with that value: a byte of 0xC3 becomes the two bytes U+00C3 is written
+// with, and the pattern can then never match the path it came from. Every glob
+// containing a character outside ASCII would compile without complaint and
+// match nothing — a deny rule that denies nothing, in silence. `go vet` does not
+// catch it either: stringintconv exempts conversions from byte and rune, which
+// is exactly what this one is.
 func compileGlob(g string) (*regexp.Regexp, error) {
 	var b strings.Builder
 	b.WriteString("^")
@@ -83,7 +92,7 @@ func compileGlob(g string) (*regexp.Regexp, error) {
 		case g[i] == '?':
 			b.WriteString("[^/]")
 		default:
-			b.WriteString(regexp.QuoteMeta(string(g[i])))
+			b.WriteString(regexp.QuoteMeta(g[i : i+1]))
 		}
 	}
 	b.WriteString("$")

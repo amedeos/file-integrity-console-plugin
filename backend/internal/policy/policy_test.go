@@ -131,6 +131,38 @@ func TestEmptyPolicyAllowsEverything(t *testing.T) {
 	}
 }
 
+func TestDeniesAGlobOutsideASCII(t *testing.T) {
+	// The bytes that matter are the ones in the *pattern*. A glob is quoted a
+	// byte at a time, and under string(g[i]) — a conversion from an integer —
+	// each byte above 0x7F became the UTF-8 encoding of the code point with
+	// that value, so the pattern could no longer match the name it was written
+	// from. It denied nothing, and nothing said so: New returns no error, the
+	// rule appears in Patterns(), and `go vet` exempts the conversion because
+	// its operand is a byte. Only a path that should have been refused and was
+	// not could show it, and that is this test.
+	p, err := New([]string{"/etc/pässe/**"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if _, err := p.Check("/etc/pässe/key.pem"); err == nil {
+		t.Error("Check = allowed, want denied by /etc/pässe/**")
+	}
+	if _, err := p.Check("/etc/passe/key.pem"); err != nil {
+		t.Errorf("Check = denied, want allowed: a different directory: %v", err)
+	}
+
+	// A non-ASCII byte on the *path* side was never the problem — a star
+	// matches bytes and does not care what they spell. Pinned so that the fix
+	// is not later mistaken for something the path needed too.
+	p, err = New([]string{"/etc/segreti/*"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if _, err := p.Check("/etc/segreti/päßwörter"); err == nil {
+		t.Error("Check = allowed, want denied by /etc/segreti/*")
+	}
+}
+
 func TestCommentsAndBlanksAreIgnored(t *testing.T) {
 	p, err := New([]string{"# a comment", "", "  ", "/etc/shadow"})
 	if err != nil {
