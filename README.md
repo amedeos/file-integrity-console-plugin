@@ -566,6 +566,15 @@ semver `0.1.0-ocp4.16` is a *prerelease* of `0.1.0` and sorts before it, so a
 single shared channel would describe an upgrade from the 4.16 build to the 4.22
 one.
 
+**Update `replaces` in that table before generating.** A channel must have
+exactly one head — one bundle that nothing else replaces — and `opm validate`
+refuses a catalogue where it does not, so a release into a channel that already
+holds a bundle has to name it. That is a fact about what is published in
+`community-operators-prod` and cannot be derived from anything here, which is
+why it is the one row entry that has to be maintained by hand. A channel still
+empty declares nothing: naming a predecessor that was never published leaves a
+dangling edge. The build prints what it used, or `— (first in channel)`.
+
 **Tag first.** A bundle names an immutable image, so `X.Y.Z` has to exist and
 Quay has to have built it before the bundle is generated for submission.
 

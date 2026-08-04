@@ -66,6 +66,29 @@ const NAMESPACE = 'file-integrity-console-plugin';
 // gates nothing the annotation does not already gate — the validator asks for
 // it, and answering with a number that was looked up beats answering with one
 // that was guessed.
+//
+// `replaces` names the bundle **already published in that channel upstream**,
+// and it is the one field here that is about the catalogue rather than about
+// the generation. A channel must have exactly one head — a bundle nothing else
+// replaces or skips — and `opm validate` refuses a catalogue where it does not:
+//
+//     multiple channel heads found in graph:
+//       file-integrity-console-plugin.v0.3.1,
+//       file-integrity-console-plugin.v0.4.0
+//
+// Checked both ways against a hand-written declarative config rather than
+// assumed: two entries with no edge between them fail, the same pair with this
+// field passes. Nothing in this repository can be derived into it, because it
+// is a fact about what is in `community-operators-prod`, not about what has
+// been tagged here — so it is stated, and it has to be updated when a release
+// is submitted. `updateGraph: replaces-mode` in the operator's `ci.yaml` is
+// what makes it the only thing consulted; a semver-ordered graph is refused
+// there for the reason in the paragraph above.
+//
+// A generation whose channel is still empty declares none, and must: naming a
+// predecessor that was never published leaves a dangling edge. `stable-4.16`
+// and `stable-4.19` are in that state — 0.3.1 was cut for both and submitted
+// for neither, so 0.4.0 is the first bundle either channel will hold.
 const GENERATIONS = [
   {
     suffix: '-ocp4.16',
@@ -84,6 +107,7 @@ const GENERATIONS = [
     ocpVersions: 'v4.22',
     channel: 'stable-4.22',
     minKubeVersion: '1.35.0',
+    replaces: `${PACKAGE}.v0.3.1`,
   },
 ];
 
@@ -300,6 +324,21 @@ csv.metadata.annotations = {
 
 csv.spec.version = version;
 csv.spec.minKubeVersion = generation.minKubeVersion;
+
+// Absent for a generation whose channel holds nothing yet — see GENERATIONS.
+// A bundle that replaces itself is what a stale table looks like after a
+// release goes out and nobody updates it, and it is not a shape OLM has a
+// sensible reading of, so it stops here rather than in someone else's pipeline.
+if (generation.replaces) {
+  if (generation.replaces === csv.metadata.name) {
+    throw new Error(
+      `${csv.metadata.name} would replace itself. The replaces entry for ` +
+        `${generation.channel} still names this version; it should name the ` +
+        'bundle already published in that channel.',
+    );
+  }
+  csv.spec.replaces = generation.replaces;
+}
 csv.spec.icon = [
   {
     base64data: fs.readFileSync(path.join(HERE, 'icon.svg')).toString('base64'),
@@ -430,6 +469,10 @@ console.log(`${PACKAGE} ${version}`);
 console.log(`  image     ${image} (pull ${pullPolicy})`);
 console.log(`  console   ${generation.ocpVersions}`);
 console.log(`  channel   ${generation.channel}`);
+// Printed either way, because the interesting case is the empty one: a channel
+// that already holds a bundle and a build that says `replaces  —` is the
+// catalogue rejection in advance, and it is not visible anywhere else.
+console.log(`  replaces  ${csv.spec.replaces ?? '— (first in channel)'}`);
 console.log(`  namespace ${NAMESPACE}`);
 console.log(`  written   ${relative}/`);
 for (const f of fs.readdirSync(path.join(OUT, 'manifests')).sort()) {
