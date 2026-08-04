@@ -711,6 +711,30 @@ jobs:
             'file-integrity-console-plugin',
           );
 
+          // `replaces` is the one field the generator cannot derive: it names a
+          // bundle already published upstream, which is a fact about
+          // `community-operators-prod` rather than about this tree. So it is
+          // not restated here — restating it would mean editing two places at
+          // every release, and the second one would be the one forgotten.
+          //
+          // What is checked is the shape, and both failures it catches are
+          // failures of a stale table. Replacing itself is what a version bump
+          // with no table update produces. Replacing across generations is the
+          // worse one: it is an upgrade edge from one console's build to
+          // another's, exactly what the channel-per-generation split exists to
+          // make impossible, and the pipeline would accept it.
+          if (csv.spec.replaces !== undefined) {
+            const of = (name) =>
+              Object.keys(expected).find((s) => s !== '' && name.endsWith(s)) ??
+              '';
+            check(
+              'replaces is another bundle',
+              csv.spec.replaces !== csv.metadata.name,
+              true,
+            );
+            check('replaces same generation', of(csv.spec.replaces), suffix);
+          }
+
           if (fail.length) {
             fail.forEach((f) => console.error(`  ${f}`));
             process.exit(1);

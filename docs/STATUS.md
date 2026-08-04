@@ -1716,6 +1716,55 @@ stricter for a good reason.
 - **The 30-day window on a cluster that does not retain 30 days**, which is the
   failure the selector introduced and the one thing about it never exercised.
 
+## The first submission landed, and made a channel that can be broken — 4 August 2026
+
+**[PR #10586][sub2] was merged**, at 09:14 EDT, after a week of waiting for a
+maintainer. So `operators/file-integrity-console-plugin/` exists upstream, with
+0.3.1 in it, and the ordering that section described — 4.16 and 4.19 cannot be
+submitted until the first one lands — is spent. The three 0.4.0 submissions are
+now three independent pull requests.
+
+It also changes something about the *next* one, and this is the part that was
+not foreseen. `stable-4.22` is no longer empty. **A channel must have exactly
+one head** — one bundle that nothing else replaces or skips — and a bundle that
+declares no `replaces` is a head by definition, so 0.4.0 arriving beside 0.3.1
+gives the channel two. `opm validate` refuses that outright:
+
+```
+invalid channel "stable-4.22":
+  multiple channel heads found in graph:
+    file-integrity-console-plugin.v0.3.1, file-integrity-console-plugin.v0.4.0
+```
+
+Checked in both directions against a hand-written declarative config rather
+than reasoned about: the pair with no edge between them fails with the message
+above, the same pair with `replaces` passes. That took four lines of JSON and
+no cluster — `opm validate` reads a directory of declarative config, so the
+graph can be asked about without rendering a bundle image or having a container
+runtime at all. Worth knowing: this is the cheapest check in the whole
+submission path and it is the one nothing else performs, since `operator-sdk
+bundle validate` looks at a bundle alone and never at the channel it joins.
+
+**Nothing in this repository can derive it.** `replaces` names a bundle that is
+published in `community-operators-prod`; the tags cut here are not evidence of
+that, and 0.3.1 is the proof — it was cut for all three generations and
+submitted for one. So it is stated, in the generation table in
+`build-bundle.mjs` beside the range and the channel, and it is the one entry
+there that has to be maintained by hand at each release. `stable-4.16` and
+`stable-4.19` declare none and must: naming a predecessor that was never
+published is a dangling edge, and for those two channels 0.4.0 is genuinely the
+first bundle.
+
+The build now prints the value, or `— (first in channel)`, because the
+interesting case is the empty one and it is visible nowhere else. CI does not
+restate the fact — that would be two places to edit at every release, and the
+second is the one that gets forgotten — but it does check the shape: a bundle
+may not replace itself, which is what a version bump with a stale table
+produces, and may not replace one from another generation, which would be an
+upgrade edge from one console's build to another's and is exactly what the
+channel-per-generation split exists to make impossible. Both were proved to
+fail before being relied on.
+
 ## Environment notes
 
 - The Go toolchain is **not preinstalled** and `/tmp` is a 1 GB tmpfs, too small for the module
