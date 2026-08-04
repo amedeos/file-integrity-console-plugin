@@ -1633,6 +1633,78 @@ throwing.
 documenting the limit costs a paragraph. 4 belongs with 3, because both appear
 only with more than one FileIntegrity.
 
+## 0.4.0 — what the review turned into — 4 August 2026
+
+Three of the ten findings above became code, in four pull requests plus the
+version. The one that did not is finding 1, and how it was closed is the part
+worth reading.
+
+**The deny list does not follow a symbolic link, and now says so.** The plan
+claimed it rejects "symlinks outside the root" and `policy.go` claimed the list
+exists so that *"can exec into the file-integrity namespace"* does not silently
+become *"can read every secret on the host"*. A link falsifies the second
+sentence: the list matches the path as written, `head` opens the file and `head`
+follows links, so a link whose own name is allowed returns the bytes of a denied
+path and the audit line records the harmless name.
+
+The code is unchanged **deliberately**, and the reasoning is the useful part.
+Reaching that code needs `create` on `pods/exec` in the operator's namespace,
+checked with the caller's own token — and whoever holds that can exec into the
+same privileged pod and read the same file without this service at all. So the
+list is a guard rail against reading a secret by accident, not a boundary that
+contains anyone; the boundary is the API server's, and it is checked first.
+Resolving the path before matching would close the gap for one more command in
+the exec. It is written down rather than done so the next person decides it
+instead of inheriting a promise the code never kept.
+
+**A deny rule written outside ASCII denied nothing.** `compileGlob` quoted the
+pattern through `string(g[i])`, a conversion from an integer, so every byte
+above 0x7F became the UTF-8 encoding of the code point with that value and the
+pattern could no longer match the name it was written from. Nothing reported it:
+`New` returns no error, the rule is listed at startup, and `go vet` is silent
+because `stringintconv` exempts an operand of type `byte`. Proved in both
+directions before the fix was written — the test fails without it, and `go vet`
+exits 0 either way. Only the bytes in the *pattern* were affected; a path outside
+ASCII under an ASCII pattern always worked, and the test pins that too so the
+fix is not later mistaken for something the path needed.
+
+**A node's report was found by node name alone.** The route names a
+FileIntegrity and a node and only the node was used, so on a cluster running one
+FileIntegrity for the control plane and another for the workers — the
+arrangement the operator's own documentation suggests — one node has two
+statuses and whichever the list held first won. `ownerOf` lived in
+`NodeStatusOverviewPage.tsx`, which diverges on `release-4.16`, so reusing it
+would have made the fix diverge; it moved to `src/lib/owner.ts` with `statusOf`
+beside it. The bulk re-init went with it: `Promise.all` abandons on the first
+rejection, so a refusal on one resource reported a total failure while the other
+had already succeeded, and the reader — told nothing had happened — presses the
+button again.
+
+**A third thing surfaced that no review had found, because it was in the test
+harness.** The `react-i18next` mock returned the key and dropped the
+interpolations, so every sentence carrying a number reached a test as
+`{{count}}`; three tests said so in their own comments and asserted the unit
+instead. A panel could have printed any figure at all, on any window, without a
+test noticing — in a repository that has already shipped a string rendering its
+own key. The mock now substitutes the options into the key, and those three
+tests assert twelve minutes and six hours outright.
+
+**Why 0.4.0 and not 0.3.2.** `0.3.1` was tagged on 28 July at 14:08 and the
+history panels were written on the 31st, so nobody running a released build has
+ever seen them. It also carries an install-time prerequisite that did not exist
+before — the `openshift.io/cluster-monitoring` label on the operator's namespace,
+without which the panels have nothing to read. A new requirement is not a patch.
+For 4.16 and 4.19 this will be the **first bundle ever published**, so those
+users never meet a 0.3.x at all.
+
+**Five merges produced one build.** Quay queued the build for the *first* of
+them and dropped the other four, the final commit included — so `latest` and
+`main` were about to be built from a tree with none of this in it and the
+previous version number. Nothing says so anywhere: these are mutable tags, so
+there is no dead reference to trip over, only a lab console quietly running
+yesterday's binary. Recorded in `AGENTS.md` beside the rule for tags, which is
+stricter for a good reason.
+
 ### Still to verify
 
 - **File retrieve**, which the container lab cannot do by construction: the
