@@ -494,7 +494,24 @@ CI never runs and the gap simply sits there.
   One consequence outlives the fix: **builds missed while the trigger was down
   do not happen retroactively.** `main` and `latest` stayed a day old with
   nothing on GitHub to suggest it. Re-run the trigger by hand for the ref that
-  was missed rather than inventing a commit to provoke it.
+  was missed rather than inventing a commit to provoke it. A commit that was
+  going to be written anyway serves as well; it is the *inventing* that is the
+  bad idea, not the build.
+
+  **Merging a series of pull requests is the same hazard, and only the last
+  build matters.** Five merges in quick succession on 4 August 2026 produced
+  exactly one build, for the **first** of them — the other four, the final
+  commit included, never appeared. `latest` and `main` were about to be built
+  from a tree carrying none of that day's fixes and the previous version
+  number. This one is quieter than the tag case rather than louder: mutable
+  tags leave no dead reference for anything to trip over, so the only symptom
+  is a lab console running yesterday's binary while reporting success.
+
+  The intermediate builds are worthless by construction — they compile states
+  of `main` nobody asked for. So merge the first pull requests without waiting,
+  and **read the queue before the last one**: one wait instead of one per
+  merge, and no trigger to re-run by hand afterwards. Either way, check that a
+  build exists for the commit that ended up at the tip.
 - **A green `bundle` job does not predict the community pipeline, because the
   two run different `operator-sdk` versions.** Ours pins 1.42.3. The community
   hosted pipeline runs something older, and `operator-sdk bundle validate`

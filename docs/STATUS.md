@@ -1508,6 +1508,203 @@ answers 3 at every one of those instants, and still answers **empty** for a
 metric name that does not exist. A probe that can no longer report an unscraped
 cluster would have traded one wrong state for another.
 
+### What a read of the whole tree found — 3 August 2026
+
+Not a diff review: every file under `backend/`, `src/`, `charts/` and `hack/`,
+plus the CI workflow. Nothing here is fixed, and nothing here was found by a
+test — which is most of the point of writing it down.
+
+Ordered by what it would cost to be wrong about.
+
+**1. The deny list does not survive a symbolic link, and the plan says it
+should.** `docs/IMPLEMENTATION-PLAN.md` says `internal/policy` rejects
+"non-absolute paths, `..`, **symlinks outside the root**, and a deny list". The
+first two exist. The third was never written and nothing records the gap.
+`nodefile.go` runs `head -c N -- /hostroot<path>`, and `head` follows links: the
+deny list is checked against the link's name and the bytes come from the
+target. The audit line in `main.go` then records the harmless path, so the trail
+is wrong too.
+
+It is not a privilege escalation — anyone who can exec into the operator's
+namespace can read that file directly. It matters because `policy.go`'s own
+comment claims exactly the guarantee that is missing, "so that *can exec into
+the file-integrity namespace* does not silently become *can read every secret on
+the host*", and because the person who plants the link need not be the person
+who reads it: a workload with a `hostPath` mount can do it and a legitimate user
+of the panel is the one who pulls the file.
+
+Two honest ways out: resolve with `realpath -e --` in a first exec and re-run
+`policy.Check` on the answer, at the cost of one more exec; or write down that
+the deny list is about paths and does not resolve links. **What is not
+defensible is the present state, where the plan promises one thing and the code
+does another.**
+
+**2. `compileGlob` silently breaks every non-ASCII pattern.**
+`backend/internal/policy/policy.go`:
+
+```go
+b.WriteString(regexp.QuoteMeta(string(g[i])))
+```
+
+`g[i]` is a `byte`, and in Go `string(<integer>)` yields the UTF-8 *encoding of
+that code point*, not that byte: `string(byte(0xC3))` is two bytes. So a deny
+glob containing one non-ASCII character — `/home/josé/.ssh/**` — compiles to a
+regexp that can never match. No error, no warning: the pattern reads as
+configured and denies nothing. `go vet`'s `stringintconv` does not catch it,
+because it exempts `byte` and `rune` precisely.
+
+The fix is `g[i:i+1]` rather than `string(g[i])`; a string slice keeps the byte.
+Derived from the language specification, not executed — the Go toolchain is not
+installed in the environment this was reviewed in.
+
+**3. The node page ignores the FileIntegrity in its own URL.**
+`src/components/NodeReportPage.tsx` looks the FileIntegrity up by name and then
+finds the status by node name alone. The route names both.
+
+With disjoint FileIntegrity resources — the ordinary masters/workers split —
+nothing goes wrong, because each node has exactly one status. With overlapping
+node selectors a node has two, `find` returns whichever the watch listed first,
+and then: the overview shows two rows for that node linking to two different
+URLs, **both rendering the same status**; and *Re-initialize* annotates the
+resource named in the URL while the report on screen may belong to the other. A
+stale or hand-typed URL produces the same disagreement with one resource.
+
+The fix is to filter on the owner too, which means reusing `ownerOf` — today a
+local function in `NodeStatusOverviewPage.tsx`, one of the files that **diverges
+on `release-4.16`**. Moving it into `src/lib/` is right regardless: it holds no
+PatternFly and does not belong in a file that differs per generation.
+
+**4. The bulk re-init reports a partial failure as a total one.**
+`ReinitActions.tsx` patches every FileIntegrity with `Promise.all`. With one
+resource that is exact. With two, a success on the masters and a failure on the
+workers renders "Request failed" while half the cluster is already rebuilding
+its baseline — so the reader has every reason to retry, or to believe nothing
+happened. `allSettled`, and a message naming which resource failed.
+
+**5. A label selector built by concatenation.** `nodefile.go` interpolates the
+unvalidated `fileIntegrity` query parameter into a label selector. The blast
+radius is small — the namespace is fixed, the field selector pins the node, the
+container is fixed, and the exec is still the caller's to be allowed or refused
+— so this is not a vulnerability. But a malformed selector becomes a 400 from
+the API server surfaced to the user as a 500, and unvalidated input reaching a
+selector ages badly. A DNS-1123 name check settles it.
+
+**6. A deny list that compiles to nothing says nothing.** Point
+`--deny-list-file` at a file of comments and `policy.New` returns a policy that
+denies nothing, while `main.go` logs `denyPatterns=0` at info level. Replacing
+the defaults is deliberate and documented; replacing them with *nothing*
+deserves a refusal at startup rather than a log line.
+
+**7. The count cards count statuses, not nodes.**
+`NodeStatusOverviewPage.tsx`. With overlapping resources a node is counted
+twice, so "Changes detected: 2" can mean one node. Consistent with the table,
+which does show two rows — but the card says nodes and counts objects.
+
+**Minor, and listed so they are not rediscovered:**
+
+- `retrieveDisabledReason` on `AideReportTable` is never passed. The ability to
+  say "disabled" *before* the click exists and is wired to nothing, so an
+  installation with `fileRetrieve: false` offers the button and answers 501.
+  The frontend has no way to know; the backend would have to say so, for
+  instance in `/healthz`.
+- `FileContentModal` calls `URL.revokeObjectURL` immediately after `a.click()`,
+  which cancels the download in some browsers. Not reproduced.
+- `decodeBase64` throws inside a `useMemo`, outside the effect's `catch`, so a
+  malformed base64 body would blank the page rather than show a message. It
+  presumes a backend that misbehaves.
+
+**What was checked and found sound**, so that a later reader knows it was looked
+at rather than skipped: the RBAC invariant holds everywhere it was searched for
+— no namespaced rule in the chart, two cluster rules and both about installing,
+`AnonymousClientConfig` with `BearerTokenFile` and `Impersonate` cleared
+explicitly, no service-account fallback, and the deny list checked *before*
+authentication as documented. The WebSocket-to-SPDY fallback keeps a buffer per
+attempt rather than using `NewFallbackExecutor`, which is the fix for a 32-byte
+file once returned twice and hashed as though the duplicate were on disk — the
+worst possible defect in an integrity tool, and closed properly. `src/flags.ts`
+argues its choice from a real startup race rather than a preference. The AIDE
+parser carries two grammars with real care for the edge cases — separators
+inside ACLs, hashes wrapped across lines, the database-attributes block that is
+shaped exactly like a detail block — and degrades to raw text instead of
+throwing.
+
+**1, 2 and 3 are worth fixing, and they are three concerns, so three branches.**
+1 needs a decision before it can be written: resolving links costs an exec,
+documenting the limit costs a paragraph. 4 belongs with 3, because both appear
+only with more than one FileIntegrity.
+
+## 0.4.0 — what the review turned into — 4 August 2026
+
+Three of the ten findings above became code, in four pull requests plus the
+version. The one that did not is finding 1, and how it was closed is the part
+worth reading.
+
+**The deny list does not follow a symbolic link, and now says so.** The plan
+claimed it rejects "symlinks outside the root" and `policy.go` claimed the list
+exists so that *"can exec into the file-integrity namespace"* does not silently
+become *"can read every secret on the host"*. A link falsifies the second
+sentence: the list matches the path as written, `head` opens the file and `head`
+follows links, so a link whose own name is allowed returns the bytes of a denied
+path and the audit line records the harmless name.
+
+The code is unchanged **deliberately**, and the reasoning is the useful part.
+Reaching that code needs `create` on `pods/exec` in the operator's namespace,
+checked with the caller's own token — and whoever holds that can exec into the
+same privileged pod and read the same file without this service at all. So the
+list is a guard rail against reading a secret by accident, not a boundary that
+contains anyone; the boundary is the API server's, and it is checked first.
+Resolving the path before matching would close the gap for one more command in
+the exec. It is written down rather than done so the next person decides it
+instead of inheriting a promise the code never kept.
+
+**A deny rule written outside ASCII denied nothing.** `compileGlob` quoted the
+pattern through `string(g[i])`, a conversion from an integer, so every byte
+above 0x7F became the UTF-8 encoding of the code point with that value and the
+pattern could no longer match the name it was written from. Nothing reported it:
+`New` returns no error, the rule is listed at startup, and `go vet` is silent
+because `stringintconv` exempts an operand of type `byte`. Proved in both
+directions before the fix was written — the test fails without it, and `go vet`
+exits 0 either way. Only the bytes in the *pattern* were affected; a path outside
+ASCII under an ASCII pattern always worked, and the test pins that too so the
+fix is not later mistaken for something the path needed.
+
+**A node's report was found by node name alone.** The route names a
+FileIntegrity and a node and only the node was used, so on a cluster running one
+FileIntegrity for the control plane and another for the workers — the
+arrangement the operator's own documentation suggests — one node has two
+statuses and whichever the list held first won. `ownerOf` lived in
+`NodeStatusOverviewPage.tsx`, which diverges on `release-4.16`, so reusing it
+would have made the fix diverge; it moved to `src/lib/owner.ts` with `statusOf`
+beside it. The bulk re-init went with it: `Promise.all` abandons on the first
+rejection, so a refusal on one resource reported a total failure while the other
+had already succeeded, and the reader — told nothing had happened — presses the
+button again.
+
+**A third thing surfaced that no review had found, because it was in the test
+harness.** The `react-i18next` mock returned the key and dropped the
+interpolations, so every sentence carrying a number reached a test as
+`{{count}}`; three tests said so in their own comments and asserted the unit
+instead. A panel could have printed any figure at all, on any window, without a
+test noticing — in a repository that has already shipped a string rendering its
+own key. The mock now substitutes the options into the key, and those three
+tests assert twelve minutes and six hours outright.
+
+**Why 0.4.0 and not 0.3.2.** `0.3.1` was tagged on 28 July at 14:08 and the
+history panels were written on the 31st, so nobody running a released build has
+ever seen them. It also carries an install-time prerequisite that did not exist
+before — the `openshift.io/cluster-monitoring` label on the operator's namespace,
+without which the panels have nothing to read. A new requirement is not a patch.
+For 4.16 and 4.19 this will be the **first bundle ever published**, so those
+users never meet a 0.3.x at all.
+
+**Five merges produced one build.** Quay queued the build for the *first* of
+them and dropped the other four, the final commit included — so `latest` and
+`main` were about to be built from a tree with none of this in it and the
+previous version number. Nothing says so anywhere: these are mutable tags, so
+there is no dead reference to trip over, only a lab console quietly running
+yesterday's binary. Recorded in `AGENTS.md` beside the rule for tags, which is
+stricter for a good reason.
+
 ### Still to verify
 
 - **File retrieve**, which the container lab cannot do by construction: the
