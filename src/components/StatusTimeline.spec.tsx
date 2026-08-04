@@ -130,23 +130,15 @@ describe('StatusTimeline', () => {
     // Twelve minutes and six hours draw the same rectangle. Without this the
     // 30-day band reads as if it had the 24-hour band's resolution, and a
     // single sample looks like a six-hour incident.
-    //
-    // The translation mock returns the key, so what is assertable here is that
-    // the unit follows the window. The numbers themselves are `resolution`'s,
-    // and are checked in series.spec.ts where they are numbers.
     const { rerender } = render(
       <StatusTimeline segments={segments('ok')} failures={0} timespan="24h" />,
     );
-    expect(
-      screen.getByText('One sample every {{count}} minute(s).'),
-    ).toBeVisible();
+    expect(screen.getByText('One sample every 12 minute(s).')).toBeVisible();
 
     rerender(
       <StatusTimeline segments={segments('ok')} failures={0} timespan="30d" />,
     );
-    expect(
-      screen.getByText('One sample every {{count}} hour(s).'),
-    ).toBeVisible();
+    expect(screen.getByText('One sample every 6 hour(s).')).toBeVisible();
   });
 
   it('names the period each run covers, for the browser to show on hover', () => {
