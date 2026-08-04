@@ -1,4 +1,5 @@
 {
+  "{{failed}} of {{total}} FileIntegrity resources could not be updated; the others were. First failure: {{detail}}": "Non è stato possibile aggiornare {{failed}} risorse FileIntegrity su {{total}}; le altre sì. Primo errore: {{detail}}",
   "{{returned}} of the {{requested}} points asked for came back, so this band is a sample rather than a record.": "Sono tornati {{returned}} punti dei {{requested}} richiesti, quindi questa banda è un sondaggio più che una cronologia.",
   "24 hours": "24 ore",
   "30 days": "30 giorni",
