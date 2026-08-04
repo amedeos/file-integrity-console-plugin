@@ -69,6 +69,11 @@ spec:
       as though it were complete.
     * **Re-initialise** — per node or cluster-wide, behind a confirmation that
       spells out that the current baseline is discarded.
+    * **History** — over 24 hours, 7 days or 30 days: when a node was reporting
+      changes, how many nodes were failing over time, and how many baseline
+      re-initialisations happened, separating the ones a person asked for from
+      the operator's own. It needs the operator's metrics to be collected; see
+      below.
 
     ## How it talks to the cluster
 
@@ -112,6 +117,21 @@ spec:
       through the browsing user's token, and where to look for them is a setting
       of its own. Any other namespace works too — the plugin reads the one it
       was installed into and registers with the console accordingly.
+    * **Label the operator's namespace if you want the history panels.** They
+      read the File Integrity Operator's own metrics through the console's
+      Prometheus proxy, and on a fresh cluster nobody collects them: the
+      operator ships a `ServiceMonitor`, but its namespace carries no
+      `openshift.io/cluster-monitoring` label, so Prometheus never scrapes it.
+      The panels say so rather than drawing an empty chart. The remedy is a
+      cluster administrator's, and this plugin holds no permission anywhere
+      near that label:
+
+      ```
+      oc label namespace openshift-file-integrity openshift.io/cluster-monitoring=true
+      ```
+
+      History begins when collection begins — labelling the namespace does not
+      recover the past. Everything else works without it.
     * **Enable the plugin when the form asks.** OperatorHub defaults the *Console
       plugin* choice to **Disabled** for any catalogue it does not trust, which
       includes the community one. Left that way, the operator runs and no menu
