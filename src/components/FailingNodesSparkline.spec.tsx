@@ -42,7 +42,7 @@ describe('FailingNodesSparkline', () => {
     render(<FailingNodesSparkline samples={fullWindow(2)} timespan="24h" />);
 
     expect(
-      screen.getByText(/^Between 0 and \{\{peak\}\} nodes were reporting/),
+      screen.getByText(/^Between 0 and 2 nodes were reporting/),
     ).toBeVisible();
   });
 
@@ -102,19 +102,13 @@ describe('FailingNodesSparkline', () => {
   });
 
   it('states how much time one sample stands for', () => {
-    // The translation mock returns the key, so the unit is what is assertable
-    // here; the numbers are `resolution`'s and are checked in series.spec.ts.
     const { rerender } = render(
       <FailingNodesSparkline samples={run(0, 1)} timespan="24h" />,
     );
-    expect(
-      screen.getByText('One sample every {{count}} minute(s).'),
-    ).toBeVisible();
+    expect(screen.getByText('One sample every 12 minute(s).')).toBeVisible();
 
     rerender(<FailingNodesSparkline samples={run(0, 1)} timespan="30d" />);
-    expect(
-      screen.getByText('One sample every {{count}} hour(s).'),
-    ).toBeVisible();
+    expect(screen.getByText('One sample every 6 hour(s).')).toBeVisible();
   });
 
   it('says where the data begins without claiming why', () => {

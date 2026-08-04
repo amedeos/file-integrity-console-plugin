@@ -184,8 +184,34 @@ export const ReinitBulkActions: React.FC<{
     return null;
   }
 
-  const forEachFi = (key: string) => () =>
-    Promise.all(fileIntegrities.map((fi) => patchAnnotation(fi, key, '')));
+  // allSettled, not all: `all` rejects on the first failure while the other
+  // requests are still in flight, so a partial success was reported as a total
+  // failure — the modal said the re-init had not happened, and on every
+  // FileIntegrity but one it had. The reader would then press the button again.
+  //
+  // Every request is therefore awaited, and the summary says how many of them
+  // arrived. Patching an annotation is idempotent, so retrying the whole action
+  // after a partial failure is safe; being told the truth about it is what lets
+  // the reader decide to.
+  const forEachFi = (key: string) => async () => {
+    const settled = await Promise.allSettled(
+      fileIntegrities.map((fi) => patchAnnotation(fi, key, '')),
+    );
+    const failures = settled.filter((r) => r.status === 'rejected');
+    if (failures.length === 0) {
+      return;
+    }
+    throw new Error(
+      t(
+        '{{failed}} of {{total}} FileIntegrity resources could not be updated; the others were. First failure: {{detail}}',
+        {
+          failed: failures.length,
+          total: settled.length,
+          detail: errorMessage(failures[0]?.reason),
+        },
+      ),
+    );
+  };
 
   const onFailedOnly = () => {
     setOpen(false);

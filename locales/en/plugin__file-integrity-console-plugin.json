@@ -1,4 +1,5 @@
 {
+  "{{failed}} of {{total}} FileIntegrity resources could not be updated; the others were. First failure: {{detail}}": "{{failed}} of {{total}} FileIntegrity resources could not be updated; the others were. First failure: {{detail}}",
   "{{returned}} of the {{requested}} points asked for came back, so this band is a sample rather than a record.": "{{returned}} of the {{requested}} points asked for came back, so this band is a sample rather than a record.",
   "24 hours": "24 hours",
   "30 days": "30 days",

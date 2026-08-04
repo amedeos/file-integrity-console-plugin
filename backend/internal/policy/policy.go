@@ -4,9 +4,24 @@
 // filesystem bind-mounted at /hostroot. That makes an unrestricted read
 // endpoint equivalent to cluster takeover on a control-plane node: etcd
 // certificates, the kubelet kubeconfig and every service account signing key
-// live under /etc/kubernetes. The user's own RBAC is the primary control, but
-// this deny list exists so that "can exec into the file-integrity namespace"
-// does not silently become "can read every secret on the host".
+// live under /etc/kubernetes. The user's own RBAC is the primary control, and
+// this deny list is a guard rail on top of it: it exists so that a path this
+// service was never meant to serve is not read by accident or by convenience.
+//
+// It is not a boundary that contains an attacker, and it must not be described
+// as one. Two reasons, and the first is the stronger:
+//
+//   - Reaching this code needs `create` on pods/exec in the operator's
+//     namespace, checked against the caller's own token. Whoever holds that can
+//     exec into the same privileged pod and read the same file without asking
+//     us at all.
+//   - The list matches the path as written, and it is `head` that opens it.
+//     `head` follows symbolic links, so a link whose own name is allowed
+//     returns the bytes of whatever it points at — a denied path included — and
+//     the audit line records the link's harmless name. Resolving the path
+//     before matching it would close this, at the cost of one more command in
+//     the exec; it is deliberately not done, and docs/IMPLEMENTATION-PLAN.md
+//     records why.
 package policy
 
 import (
@@ -70,6 +85,15 @@ func New(globs []string) (*Policy, error) {
 //
 // Ordering matters: "**" has to be consumed before the single "*" case, or the
 // first star would match a path separator and the second would be left over.
+//
+// The default case quotes a one-byte *slice*, never string(g[i]). That
+// conversion is from an integer, so it yields the UTF-8 encoding of the code
+// point with that value: a byte of 0xC3 becomes the two bytes U+00C3 is written
+// with, and the pattern can then never match the path it came from. Every glob
+// containing a character outside ASCII would compile without complaint and
+// match nothing — a deny rule that denies nothing, in silence. `go vet` does not
+// catch it either: stringintconv exempts conversions from byte and rune, which
+// is exactly what this one is.
 func compileGlob(g string) (*regexp.Regexp, error) {
 	var b strings.Builder
 	b.WriteString("^")
@@ -83,7 +107,7 @@ func compileGlob(g string) (*regexp.Regexp, error) {
 		case g[i] == '?':
 			b.WriteString("[^/]")
 		default:
-			b.WriteString(regexp.QuoteMeta(string(g[i])))
+			b.WriteString(regexp.QuoteMeta(g[i : i+1]))
 		}
 	}
 	b.WriteString("$")

@@ -27,11 +27,7 @@ import {
 import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table';
 import { Timestamp } from '../lib/k8s';
 import { I18N_NS } from '../constants';
-import type {
-  FileIntegrity,
-  FileIntegrityNodeStatus,
-  NodeCondition,
-} from '../types';
+import type { FileIntegrityNodeStatus, NodeCondition } from '../types';
 import {
   useFileIntegrities,
   useNodeStatuses,
@@ -41,6 +37,7 @@ import {
   useMetricsAvailability,
   useReinitCounts,
 } from '../hooks/useIntegrityMetrics';
+import { ownerOf } from '../lib/owner';
 import { isNodeHeldOff, isNodeReinitializing } from '../lib/reinit';
 import { errorMessage } from '../lib/errors';
 import { CSS, TOKEN } from '../lib/styles';
@@ -54,21 +51,6 @@ import { ReinitSummary } from './ReinitSummary';
 import { TimespanSelect } from './TimespanSelect';
 
 type Filter = 'All' | NodeCondition;
-
-/** Owner FileIntegrity of a node status, resolved via its ownerReferences. */
-const ownerOf = (
-  status: FileIntegrityNodeStatus,
-  fis: FileIntegrity[],
-): FileIntegrity | undefined => {
-  const ref = status.metadata?.ownerReferences?.find(
-    (o) => o.kind === 'FileIntegrity',
-  );
-  if (ref) {
-    return fis.find((fi) => fi.metadata?.name === ref.name);
-  }
-  // Fall back to the single configured FileIntegrity, which is the common case.
-  return fis.length === 1 ? fis[0] : undefined;
-};
 
 const CountCard: React.FC<{
   title: string;

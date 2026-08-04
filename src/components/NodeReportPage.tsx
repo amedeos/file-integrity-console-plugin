@@ -30,6 +30,7 @@ import {
 } from '../hooks/useFileIntegrityData';
 import { extractIntegrityLog, readCountAnnotation } from '../lib/decode';
 import { countsMatch, parseAideReport } from '../lib/aide-parser';
+import { statusOf } from '../lib/owner';
 import { isNodeHeldOff, isNodeReinitializing } from '../lib/reinit';
 import { errorMessage } from '../lib/errors';
 import { CSS } from '../lib/styles';
@@ -72,7 +73,14 @@ const NodeReportPage: React.FC = () => {
   const historyError = availability.error ?? history.error;
 
   const fi = fis.find((f) => f.metadata?.name === fiName);
-  const status = statuses.find((s) => s.nodeName === nodeName);
+  // Both halves of the route, not the node name alone. A cluster may run a
+  // FileIntegrity for the control plane and another for the workers, and two
+  // selectors that overlap give one node two statuses — with their own results,
+  // their own ConfigMaps and their own owner to patch. Matching on the node
+  // alone returned whichever came first in the list, so the report shown and
+  // the resource the re-init button writes to could belong to different
+  // FileIntegrity resources, on a page whose heading names only the node.
+  const status = statusOf(statuses, fis, fiName, nodeName);
   const result = status?.lastResult;
 
   const {
