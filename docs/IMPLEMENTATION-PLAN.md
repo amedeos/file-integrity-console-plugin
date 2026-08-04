@@ -210,10 +210,25 @@ the currently reported changes stop being reported**. Holdoff stays read-only.
 2. Build a `rest.Config` whose `BearerToken` is the user's token.
 3. `SelfSubjectAccessReview` for `create` on `pods/exec` in `openshift-file-integrity` → a 403
    with a clear message when denied (the real enforcement remains the API server's).
-4. `internal/policy`: reject non-absolute paths, `..`, symlinks outside the root, and a
-   **deny list**: `/etc/kubernetes/static-pod-resources/**`, `**/*.key`, `**/*.pem`,
-   `**/kubeconfig*`, `/etc/kubernetes/kubelet.conf`, `**/.ssh/**`. The deny list is configurable
-   through Helm values.
+4. `internal/policy`: reject non-absolute paths and `..`, and apply a **deny list**:
+   `/etc/kubernetes/static-pod-resources/**`, `**/*.key`, `**/*.pem`, `**/kubeconfig*`,
+   `/etc/kubernetes/kubelet.conf`, `**/.ssh/**`. The deny list is configurable through Helm
+   values.
+
+   **It matches the path as written, and a symbolic link is not followed by the check but is
+   followed by the read.** `head` resolves links, so a link whose own name the list allows returns
+   the bytes of whatever it points at — a denied path included — and the audit line names the
+   link rather than the file. This is stated because an earlier version of this step claimed the
+   opposite; the deny list has never inspected a link.
+
+   That is tolerable only because of what sits above it: reaching this code at all requires
+   `create` on `pods/exec` in the operator's namespace, and anyone holding that can exec into the
+   pod and read the file directly, without this service. **The deny list is a guard rail against
+   reading a secret by accident, not a boundary that contains an attacker** — the API server's
+   authorization is the boundary, and it is checked first and with the caller's own token.
+   Resolving the link before matching would close the gap and costs one more command in the exec;
+   it is deliberately not done yet, and the reason it is written down is so that the next person
+   decides it rather than inherits it.
 5. Find the pod: a pod in `openshift-file-integrity` labelled
    `file-integrity.openshift.io/pod` with `spec.nodeName == node` (or via the `aide-<fi>`
    DaemonSet's ownerRef), in Running state.
