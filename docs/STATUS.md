@@ -1894,6 +1894,46 @@ anyway — `0.4.0` for `main`'s generation has never been installed from the rea
 `hack/lab/bundle.sh` with a locally built image rather than waiting on a
 release.
 
+## A green pull request that would have undone a generation — 5 August 2026
+
+The deny-list branch was created while the working copy sat on `release-4.16`,
+left there by the merge-forward, so it was built on that branch rather than on
+`main`. The pull request against `main` therefore proposed the whole 4.16 delta
+as well as the fix: the four PatternFly 5 components, `src/lib/router.ts` and
+`styles.ts`, `package.json`, `yarn.lock` and the `Chart.yaml` carrying
+`0.4.0-ocp4.16`.
+
+**All seven jobs passed.** They had to: the tree is internally consistent — that
+is what a release branch *is* — the versions agree with each other, the code
+compiles, the tests pass, and `branch-delta` looks at release branches against
+`main` and had nothing to say about a pull request going the other way. The only
+evidence was the pull request's file list, and only for someone who read it.
+
+Two details make this easy to walk into rather than careless, and both are worth
+writing down. `git checkout -b` branches from whatever HEAD happens to be, and
+after a merge-forward that is a release branch. And `git merge --ff-only
+origin/main` — which looks like it would catch it — answers *already up to
+date* there, because `main` is an ancestor of every release branch that has been
+merged forward. The fix is `git checkout -B <branch> origin/main` plus a
+cherry-pick; the commit itself was clean, only its base was wrong.
+
+**The guard now exists**, as two more steps on the `branch-delta` job, on pull
+requests into `main` only:
+
+- no commit in `origin/main..HEAD` may also be in `origin/main..origin/release-*`
+  — the branches are read off the remote rather than from `branch-delta.json`,
+  since a branch pushed before its entry is declared is exactly when someone is
+  on the wrong one;
+- `package.json`'s version may not carry an `-ocp` suffix, which is an
+  independent tripwire: it catches a hand-edited version, which the history
+  check cannot see.
+
+Both were replayed against the real commits before being relied on — the
+misplaced branch fails, naming 48 commits belonging to `release-4.16`, and the
+rebuilt one passes. The asymmetry with the existing check is deliberate: a
+release branch is meant to contain `main`'s commits, and `main` is never meant
+to contain a release branch's.
+
 ## Environment notes
 
 - The Go toolchain is **not preinstalled** and `/tmp` is a 1 GB tmpfs, too small for the module
