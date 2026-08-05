@@ -52,6 +52,38 @@ func TestDeniesSecretMaterial(t *testing.T) {
 	}
 }
 
+// The backups hold the same hashes as the files beside them, and they are the
+// ones a reader actually reaches: AIDE reports /etc/shadow- as changed whenever
+// a password changes, so the report table offers it. Denying /etc/shadow while
+// serving /etc/shadow- is a rule that reads as though it were doing something.
+func TestDeniesPasswordFileBackups(t *testing.T) {
+	p := newDefault(t)
+	for _, path := range []string{
+		"/etc/shadow-",
+		"/etc/gshadow-",
+		"/etc/shadow.lock",
+		"/etc/security/opasswd",
+	} {
+		if _, err := p.Check(path); err == nil {
+			t.Errorf("Check(%q) = allowed, want denied", path)
+		}
+	}
+}
+
+// The pattern is "**/shadow*", and the star must not eat a separator: what it
+// covers is a name beginning with "shadow", not a directory called one.
+func TestShadowPatternDoesNotSwallowDirectories(t *testing.T) {
+	p := newDefault(t)
+	for _, path := range []string{
+		"/usr/share/doc/shadow-utils/README",
+		"/etc/passwd",
+	} {
+		if _, err := p.Check(path); err != nil {
+			t.Errorf("Check(%q) = denied (%v), want allowed", path, err)
+		}
+	}
+}
+
 func TestDeniesTraversal(t *testing.T) {
 	p := newDefault(t)
 	// Cleaning "/etc/kubernetes/../etc/shadow" yields "/etc/shadow", which the

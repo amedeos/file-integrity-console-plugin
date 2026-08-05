@@ -176,7 +176,9 @@ that the plugin never lends its own authority to a caller:
 - A **deny list** blocks paths that would turn "can exec in the file-integrity
   namespace" into "can read every key on a control-plane node":
   `/etc/kubernetes/static-pod-resources/**`, `**/*.key`, `**/*.pem`,
-  `**/.ssh/**`, `**/shadow` and more. The full built-in list is in
+  `**/.ssh/**`, `**/shadow*` and more — the star matters, because RHCOS keeps
+  `/etc/shadow-` beside `/etc/shadow` with the same hashes in it. The full
+  built-in list is in
   [`backend/internal/policy/policy.go`](backend/internal/policy/policy.go).
   It is checked *before* the caller is even authenticated, so probing costs
   nothing and is never attributed to a session.

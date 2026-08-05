@@ -191,6 +191,107 @@ jobs:
           process.exit(failed ? 1 : 0);
           EOF
 
+      # The check above guards a release branch against `main`. Nothing guarded
+      # `main` against a release branch, and on 5 August 2026 that gap was
+      # walked into: a branch created while the working copy happened to sit on
+      # `release-4.16` carried that generation's entire delta — the PatternFly 5
+      # components, the `-ocp4.16` versions, its package.json and its lockfile —
+      # into a pull request against `main`.
+      #
+      # Every job was green, and necessarily so: the tree is perfectly
+      # consistent with itself, the versions agree with each other, the code
+      # compiles and the tests pass. What was wrong was not in any file but in
+      # the history, and the only visible trace was the pull request's file
+      # list. Merging it would have taken `main` back a generation.
+      #
+      # The invariant is one sentence: a pull request to `main` may contain
+      # commits that are new, and no commit a release branch already has.
+      #
+      # Note the asymmetry with the check above, which is deliberate rather than
+      # an oversight. Merging `main` forward is the whole point of a release
+      # branch, so a release branch is expected to contain `main`'s commits; the
+      # reverse never happens on purpose.
+      - name: A pull request to main carries no release-branch history
+        if: github.event_name == 'pull_request' && github.base_ref == 'main'
+        run: |
+          node - <<'EOF'
+          const { execFileSync } = require('child_process');
+          const git = (...args) =>
+            execFileSync('git', args, { encoding: 'utf8' })
+              .split('\n')
+              .filter(Boolean);
+
+          // On a pull request the checkout is the merge commit, so this range
+          // is exactly what the pull request proposes to add to `main`.
+          const proposed = new Set(git('rev-list', 'origin/main..HEAD'));
+
+          // Read the branches off the remote rather than from
+          // branch-delta.json: a branch pushed before its entry is declared is
+          // precisely when someone is most likely to be working on the wrong
+          // one.
+          const releases = git(
+            'for-each-ref',
+            '--format=%(refname:short)',
+            'refs/remotes/origin/release-*',
+          );
+
+          let failed = false;
+          for (const ref of releases) {
+            const shared = git('rev-list', `origin/main..${ref}`).filter((c) =>
+              proposed.has(c),
+            );
+            if (!shared.length) {
+              continue;
+            }
+            failed = true;
+            console.error(
+              `\nThis pull request carries ${shared.length} commit(s) that ` +
+                `belong to ${ref.replace(/^origin\//, '')}:`,
+            );
+            shared
+              .slice(0, 10)
+              .forEach((c) => console.error(`  ${git('show', '-s', '--oneline', c)[0]}`));
+            if (shared.length > 10) {
+              console.error(`  … and ${shared.length - 10} more`);
+            }
+          }
+
+          if (failed) {
+            console.error(
+              '\nThe branch was almost certainly created from a release branch ' +
+                'rather than from `main` — `git checkout -b` takes whatever ' +
+                'HEAD happens to be, and `git merge --ff-only origin/main` says ' +
+                '"already up to date" there, because `main` is an ancestor of ' +
+                'every release branch that has been merged forward.\n\n' +
+                'Rebuild it: `git checkout -B <branch> origin/main` and ' +
+                'cherry-pick your own commits onto it.',
+            );
+            process.exit(1);
+          }
+          console.log(
+            `Nothing from ${releases.length} release branch(es) in this pull request.`,
+          );
+          EOF
+
+      # A second tripwire, independent of history. `main` builds for the newest
+      # console generation and its version never carries a generation suffix;
+      # a release branch's always does. So a suffix here means the tree came
+      # from a release branch — or that someone edited the version by hand,
+      # which the check above cannot see.
+      - name: Main's version carries no generation suffix
+        if: github.event_name == 'pull_request' && github.base_ref == 'main'
+        run: |
+          version=$(node -p "require('./package.json').version")
+          case "$version" in
+            *-ocp*)
+              echo "package.json version is $version on a pull request to main."
+              echo "That suffix belongs to a release branch. Check what the"
+              echo "branch was created from."
+              exit 1
+              ;;
+          esac
+          echo "version $version, no generation suffix"
+
   frontend:
     name: Frontend
     runs-on: ubuntu-latest
