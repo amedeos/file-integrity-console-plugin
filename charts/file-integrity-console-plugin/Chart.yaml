@@ -2,8 +2,8 @@ apiVersion: v2
 name: file-integrity-console-plugin
 description: OpenShift console plugin for the Red Hat File Integrity Operator
 type: application
-version: 0.4.0-ocp4.16
-appVersion: "0.4.0-ocp4.16"
+version: 0.4.1-ocp4.16
+appVersion: "0.4.1-ocp4.16"
 keywords:
   - openshift
   - console-plugin
