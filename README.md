@@ -327,7 +327,8 @@ does not arise on this path.
 **Configuring it afterwards** goes through the Subscription, not through Helm
 values, which do not exist here. A Subscription can override the container's
 environment by name, and every setting the chart exposes is read from the
-environment for exactly that reason — so to turn on reading files from nodes:
+environment for exactly that reason — so to turn *off* reading files from nodes,
+which the bundle ships on exactly as the chart does:
 
 ```sh
 oc patch subscription file-integrity-console-plugin \
@@ -336,14 +337,16 @@ spec:
   config:
     env:
       - name: PLUGIN_ENABLE_FILE_RETRIEVE
-        value: "true"'
+        value: "false"'
 ```
 
 The names are the flags in [Values worth knowing](#values-worth-knowing),
 upper-cased with hyphens as underscores and a `PLUGIN_` prefix:
-`PLUGIN_MAX_FILE_BYTES`, `PLUGIN_FIO_NAMESPACE`, and so on. Read the security
-note under [File retrieve](#security-model) before enabling it — it is off by
-default deliberately, on both install paths.
+`PLUGIN_MAX_FILE_BYTES`, `PLUGIN_FIO_NAMESPACE`, and so on. Switching file
+retrieve off withholds nothing from anyone — every read already runs as the
+browsing user and is refused unless they hold `pods/exec` in the scan namespace
+— so read [Security model](#security-model) before deciding it is a hardening
+step; what it does is make the path not exist at all.
 
 A Subscription can also mount volumes, which is how a deny list of your own
 reaches the pod: mount a ConfigMap and point `PLUGIN_EXTRA_DENY_LIST_FILE` at
