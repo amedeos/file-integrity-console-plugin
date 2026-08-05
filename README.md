@@ -10,7 +10,7 @@ result ConfigMaps instead of read as raw log text.
 Adds a **Compute → File Integrity** entry to the administrator perspective,
 visible only on clusters where the `FileIntegrity` CRD exists.
 
-**Installable from OperatorHub**, on the cluster, from **4.16** upwards: it is
+**Installable from OperatorHub** on any OpenShift from **4.16** upwards: it is
 published in [`community-operators-prod`][cop] as the community operator *File
 Integrity Console Plugin*, one bundle per console generation, and a cluster is
 offered only the one built for it. Read [Install from
