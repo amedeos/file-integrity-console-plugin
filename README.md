@@ -375,7 +375,7 @@ non-default configuration.
 ```sh
 helm install file-integrity-console-plugin charts/file-integrity-console-plugin \
   --namespace file-integrity-console-plugin --create-namespace \
-  --set plugin.image=quay.io/asalvati/file-integrity-console-plugin:0.3.1
+  --set plugin.image=quay.io/asalvati/file-integrity-console-plugin:0.4.1
 ```
 
 To switch off reading files from nodes:
@@ -593,6 +593,14 @@ holds a bundle has to name it. That is a fact about what is published in
 why it is the one row entry that has to be maintained by hand. A channel still
 empty declares nothing: naming a predecessor that was never published leaves a
 dangling edge. The build prints what it used, or `— (first in channel)`.
+
+All three channels hold a bundle now, which couples two things on a release
+branch: **the merge-forward and the version bump have to be one pull request**,
+closed with a merge commit. The table arrives by merge and is compared against
+the branch's own version, so merging alone gives a bundle that replaces itself;
+bumping alone leaves the branch behind `main` in files no branch declares in
+`.github/branch-delta.json`, and that job fails instead. Neither half is green
+on its own.
 
 **Tag first.** A bundle names an immutable image, so `X.Y.Z` has to exist and
 Quay has to have built it before the bundle is generated for submission.

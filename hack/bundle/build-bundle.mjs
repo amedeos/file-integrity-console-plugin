@@ -85,29 +85,48 @@ const NAMESPACE = 'file-integrity-console-plugin';
 // what makes it the only thing consulted; a semver-ordered graph is refused
 // there for the reason in the paragraph above.
 //
-// A generation whose channel is still empty declares none, and must: naming a
-// predecessor that was never published leaves a dangling edge. `stable-4.16`
-// and `stable-4.19` are in that state — 0.3.1 was cut for both and submitted
-// for neither, so 0.4.0 is the first bundle either channel will hold.
+// No channel is empty any more. All three held nothing until 4 August 2026 and
+// all three hold 0.4.0 since that evening, so every row names a predecessor and
+// the `— (first in channel)` the build can print is now a state this package
+// has left behind rather than one it is in.
+//
+// That couples two things on a release branch that used to be independent, and
+// the coupling has no order that works — **they have to land in the same pull
+// request**, closed with a merge commit. Neither half is green alone:
+//
+//   - the merge-forward alone brings a row naming 0.4.0-ocp4.16 to a branch
+//     whose version is still 0.4.0-ocp4.16, which is a bundle that replaces
+//     itself: the check below refuses it and CI refuses it again;
+//   - the bump alone leaves the branch behind `main`, and what `main` moved are
+//     files no branch declares in .github/branch-delta.json — this one among
+//     them — so `branch-delta` fails on paths that have nothing to do with the
+//     release.
+//
+// Checked rather than reasoned about, on 5 August 2026: with `main` at 0.4.1
+// the two branches differ from it in README.md, docs/STATUS.md and this file,
+// none of which either branch declares. An earlier version of this comment said
+// to bump first and merge afterwards, which is the half that fails second.
 const GENERATIONS = [
   {
     suffix: '-ocp4.16',
     ocpVersions: 'v4.16-v4.18',
     channel: 'stable-4.16',
     minKubeVersion: '1.29.0',
+    replaces: `${PACKAGE}.v0.4.0-ocp4.16`,
   },
   {
     suffix: '-ocp4.19',
     ocpVersions: 'v4.19-v4.21',
     channel: 'stable-4.19',
     minKubeVersion: '1.32.0',
+    replaces: `${PACKAGE}.v0.4.0-ocp4.19`,
   },
   {
     suffix: '',
     ocpVersions: 'v4.22',
     channel: 'stable-4.22',
     minKubeVersion: '1.35.0',
-    replaces: `${PACKAGE}.v0.3.1`,
+    replaces: `${PACKAGE}.v0.4.0`,
   },
 ];
 
@@ -325,7 +344,10 @@ csv.metadata.annotations = {
 csv.spec.version = version;
 csv.spec.minKubeVersion = generation.minKubeVersion;
 
-// Absent for a generation whose channel holds nothing yet — see GENERATIONS.
+// Absent for a generation whose channel holds nothing yet. No row is in that
+// state today, and the branch stays because the next generation branched will
+// be — see GENERATIONS.
+//
 // A bundle that replaces itself is what a stale table looks like after a
 // release goes out and nobody updates it, and it is not a shape OLM has a
 // sensible reading of, so it stops here rather than in someone else's pipeline.
