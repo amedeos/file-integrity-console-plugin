@@ -1822,6 +1822,36 @@ days.
 [s416]: https://github.com/redhat-openshift-ecosystem/community-operators-prod/pull/10645
 [s419]: https://github.com/redhat-openshift-ecosystem/community-operators-prod/pull/10646
 
+## The SPDY fallback, byte for byte — 5 August 2026
+
+The one check the README had been asking for since `release-4.16` was cut, and
+the last thing outstanding about file retrieve on this generation. Cluster
+4.16.55, CSV `file-integrity-console-plugin.v0.4.0-ocp4.16` installed from
+OperatorHub, node `control-plane-0`, file `/etc/fio-demo-changed.conf`:
+
+| | size | `sha256` |
+|---|---|---|
+| through the plugin | 23 | `6c05d11f…aaaae9cd` |
+| on the node | 23 | `6c05d11f…aaaae9cd` |
+
+Both numbers agree, so the fallback returns what is on disk. This is the path
+with no field use behind it — 4.16 is Kubernetes 1.29, the WebSocket exec
+subprotocol is off, and `NewSPDYExecutor` is what serves *every* read here —
+and it is where the duplicated-content defect lived. A doubled file is 46 bytes
+with a digest of its own, both of which this comparison would have shown.
+
+**The dialog's Download button is not a second reading.** It builds its blob
+from `decodeBase64(result.contentBase64)`, the same bytes already on screen, so
+it would download a duplicate as happily as anything else. What it does confirm
+is the frontend's own decoding, which is worth something and is not this.
+
+Method, since the console cannot be scripted: `curl` inside the plugin pod
+against `https://localhost:9443/api/v1/nodes/control-plane-0/file` with the
+browsing user's bearer token, which is the same request the console proxy
+makes, and `sha256sum` through the AIDE pod's `/hostroot` mount for the node's
+side. Both readings are also in the pod's audit log, `outcome: allowed`,
+`detail: 23 bytes`, against user `admin`.
+
 ## Environment notes
 
 - The Go toolchain is **not preinstalled** and `/tmp` is a 1 GB tmpfs, too small for the module

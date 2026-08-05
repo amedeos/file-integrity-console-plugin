@@ -62,36 +62,34 @@ per-OpenShift community catalogue is built from the bundles whose declared range
 covers it, so a 4.19 cluster is offered the 4.19 bundle and no other, and the
 channel above is the only one its install form lists.
 
-### File retrieve on 4.16 is not verified yet
+### File retrieve on 4.16 takes a path of its own
 
-File retrieve is on by default, and on 4.16 it should be turned off
-(`backend.features.fileRetrieve=false`) until someone has checked it against a
-real cluster of that version.
+It runs different code there, and **only** there. The API server's WebSocket
+exec subprotocol is behind `TranslateStreamCloseWebsocketRequests`, which is
+alpha and off in Kubernetes 1.29 and beta and on from 1.30. OpenShift 4.16 is
+1.29, so the backend's WebSocket attempt fails at negotiation and every read
+falls back to SPDY. 4.17 is 1.30 and 4.19 is 1.32, so from 4.17 upwards the
+WebSocket attempt succeeds and the fallback never runs — the same path `main`
+takes.
 
-Not because it is expected to fail — because it runs different code there, and
-**only** there. The API server's WebSocket exec subprotocol is behind
-`TranslateStreamCloseWebsocketRequests`, which is alpha and off in Kubernetes
-1.29 and beta and on from 1.30. OpenShift 4.16 is 1.29, so the backend's
-WebSocket attempt fails at negotiation and every read falls back to SPDY. 4.17
-is 1.30 and 4.19 is 1.32, so from 4.17 upwards the WebSocket attempt succeeds
-and the fallback never runs — the same path `main` takes.
+That fallback is where this project's worst defect lived: an earlier version of
+it re-ran the command into the buffer of the attempt it was replacing and
+returned the file's contents **duplicated**, with a `sha256` of the doubled
+bytes — a wrong answer that looks entirely plausible. So the check that counts
+on this generation is not whether the dialog opens. It is whether the bytes are
+the node's:
 
-That narrows the gap rather than closing it: the SPDY fallback is the *only*
-path on 4.16 and has no field use behind it anywhere. Note also what this
-paragraph is and is not. The version mapping and the gate defaults were read
-from the Kubernetes and OpenShift sources; no read has been performed on a
-4.16, 4.17, 4.18 or 4.19 cluster.
+```sh
+oc debug node/<node> -q -- chroot /host sha256sum <path>
+```
 
-It is also where this project's worst defect lived: a fallback that re-ran the
-command into the buffer of the attempt it was replacing returned the file's
-contents **duplicated**, with a `sha256` of the doubled bytes — a wrong answer
-that looks entirely plausible. That has been fixed structurally, and the 4.16
-case is the clean one in theory: the upgrade fails before a single byte is
-streamed. "In theory" is what was said the first time.
+and compare with the size and the `SHA-256 of bytes read` the dialog shows.
 
-So the first check on a 4.16 cluster is not the interface. Read a file through
-the plugin, read the same file on the node, and compare the byte count and the
-`sha256`. If they agree, the fallback is sound.
+**Done on 5 August 2026**, on a 4.16.55 cluster running `0.4.0-ocp4.16`
+installed from OperatorHub: 23 bytes and `6c05d11f…aaaae9cd` through the
+plugin, the same 23 bytes and the same digest on the node. Repeat it after
+touching `newExecutor` — a doubled file still looks plausible, and no test or
+review catches it.
 
 ## What it does
 
