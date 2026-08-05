@@ -53,8 +53,18 @@ var DefaultDenyGlobs = []string{
 	"**/id_ecdsa",
 	"**/id_ed25519",
 	"**/.git-credentials",
-	"**/shadow",
-	"**/gshadow",
+	// The trailing star is what covers the backups. RHCOS keeps /etc/shadow-
+	// beside /etc/shadow, with the same hashes in it, and AIDE reports it as a
+	// changed entry whenever a password changes — so the plugin lists it in the
+	// report table with a button next to it. "**/shadow" alone matched the file
+	// nobody arrives at and missed the one the interface leads to. Observed on
+	// a 4.16 lab, where /etc/shadow answered 403 and /etc/shadow- answered 200
+	// with 791 bytes.
+	"**/shadow*",
+	"**/gshadow*",
+	// Old hashes, kept by pam_pwhistory. Same class, and the name gives away
+	// nothing about what is in it.
+	"**/opasswd",
 }
 
 // Policy answers whether a path may be read.
