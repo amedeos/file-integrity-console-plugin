@@ -10,6 +10,14 @@ result ConfigMaps instead of read as raw log text.
 Adds a **Compute → File Integrity** entry to the administrator perspective,
 visible only on clusters where the `FileIntegrity` CRD exists.
 
+**Installable from OperatorHub** on any OpenShift from **4.16** upwards: it is
+published in [`community-operators-prod`][cop] as the community operator *File
+Integrity Console Plugin*, one bundle per console generation, and a cluster is
+offered only the one built for it. Read [Install from
+OperatorHub](#install-from-operatorhub) first — the install form defaults the
+plugin to *Disabled*, and installing without changing that leaves the operator
+running and no menu entry anywhere.
+
 [fio]: https://github.com/openshift/file-integrity-operator
 
 ## Compatibility
@@ -38,47 +46,50 @@ Support for earlier consoles therefore has to be a build of its own, against
 that generation's SDK, on its own branch — see
 [AGENTS.md](AGENTS.md#supporting-more-than-one-console-generation).
 
-| Console | Branch | Image tag |
-|---|---|---|
-| 4.22 and later | `main` | `latest`, `X.Y.Z` |
-| 4.19 – 4.21 | `release-4.19` | `release-4.19`, `X.Y.Z-ocp4.19` |
-| 4.16 – 4.18 | `release-4.16` | `release-4.16`, `X.Y.Z-ocp4.16` |
+| Console | Branch | Image tag | OperatorHub channel |
+|---|---|---|---|
+| 4.22 and later | `main` | `latest`, `X.Y.Z` | `stable-4.22` |
+| 4.19 – 4.21 | `release-4.19` | `release-4.19`, `X.Y.Z-ocp4.19` | `stable-4.19` |
+| 4.16 – 4.18 | `release-4.16` | `release-4.16`, `X.Y.Z-ocp4.16` | `stable-4.16` |
 
 A console outside every range loads none of them rather than loading the wrong
 one: each build declares a closed `@console/pluginAPI` range, so the mismatch is
 a clean refusal in the console's own plugin list instead of a page that renders
 half-way.
 
-### File retrieve on 4.16 is not verified yet
+The channel is not something an installation has to get right by hand. Each
+per-OpenShift community catalogue is built from the bundles whose declared range
+covers it, so a 4.19 cluster is offered the 4.19 bundle and no other, and the
+channel above is the only one its install form lists.
 
-File retrieve is on by default, and on 4.16 it should be turned off
-(`backend.features.fileRetrieve=false`) until someone has checked it against a
-real cluster of that version.
+### File retrieve on 4.16 takes a path of its own
 
-Not because it is expected to fail — because it runs different code there, and
-**only** there. The API server's WebSocket exec subprotocol is behind
-`TranslateStreamCloseWebsocketRequests`, which is alpha and off in Kubernetes
-1.29 and beta and on from 1.30. OpenShift 4.16 is 1.29, so the backend's
-WebSocket attempt fails at negotiation and every read falls back to SPDY. 4.17
-is 1.30 and 4.19 is 1.32, so from 4.17 upwards the WebSocket attempt succeeds
-and the fallback never runs — the same path `main` takes.
+It runs different code there, and **only** there. The API server's WebSocket
+exec subprotocol is behind `TranslateStreamCloseWebsocketRequests`, which is
+alpha and off in Kubernetes 1.29 and beta and on from 1.30. OpenShift 4.16 is
+1.29, so the backend's WebSocket attempt fails at negotiation and every read
+falls back to SPDY. 4.17 is 1.30 and 4.19 is 1.32, so from 4.17 upwards the
+WebSocket attempt succeeds and the fallback never runs — the same path `main`
+takes.
 
-That narrows the gap rather than closing it: the SPDY fallback is the *only*
-path on 4.16 and has no field use behind it anywhere. Note also what this
-paragraph is and is not. The version mapping and the gate defaults were read
-from the Kubernetes and OpenShift sources; no read has been performed on a
-4.16, 4.17, 4.18 or 4.19 cluster.
+That fallback is where this project's worst defect lived: an earlier version of
+it re-ran the command into the buffer of the attempt it was replacing and
+returned the file's contents **duplicated**, with a `sha256` of the doubled
+bytes — a wrong answer that looks entirely plausible. So the check that counts
+on this generation is not whether the dialog opens. It is whether the bytes are
+the node's:
 
-It is also where this project's worst defect lived: a fallback that re-ran the
-command into the buffer of the attempt it was replacing returned the file's
-contents **duplicated**, with a `sha256` of the doubled bytes — a wrong answer
-that looks entirely plausible. That has been fixed structurally, and the 4.16
-case is the clean one in theory: the upgrade fails before a single byte is
-streamed. "In theory" is what was said the first time.
+```sh
+oc debug node/<node> -q -- chroot /host sha256sum <path>
+```
 
-So the first check on a 4.16 cluster is not the interface. Read a file through
-the plugin, read the same file on the node, and compare the byte count and the
-`sha256`. If they agree, the fallback is sound.
+and compare with the size and the `SHA-256 of bytes read` the dialog shows.
+
+**Done on 5 August 2026**, on a 4.16.55 cluster running `0.4.0-ocp4.16`
+installed from OperatorHub: 23 bytes and `6c05d11f…aaaae9cd` through the
+plugin, the same 23 bytes and the same digest on the node. Repeat it after
+touching `newExecutor` — a doubled file still looks plausible, and no test or
+review catches it.
 
 ## What it does
 
@@ -254,7 +265,10 @@ stages stay native and only the runtime layer varies — no emulation.
 ### Install from OperatorHub
 
 Published as a community operator, so it appears in **Operators → OperatorHub**
-under the name *File Integrity Console Plugin*.
+under the name *File Integrity Console Plugin*, in the `community-operators`
+catalogue every cluster already reads. Nothing has to be added first: no
+`CatalogSource`, no registry to mirror, no image reference to supply — the
+bundle names the published image itself.
 
 **On the install form, set "Console plugin" to Enable.** It defaults to
 *Disable*, with a warning about trusting the plugin, and installing without
@@ -311,7 +325,8 @@ does not arise on this path.
 **Configuring it afterwards** goes through the Subscription, not through Helm
 values, which do not exist here. A Subscription can override the container's
 environment by name, and every setting the chart exposes is read from the
-environment for exactly that reason — so to turn on reading files from nodes:
+environment for exactly that reason — so to turn *off* reading files from nodes,
+which the bundle ships on exactly as the chart does:
 
 ```sh
 oc patch subscription file-integrity-console-plugin \
@@ -320,14 +335,16 @@ spec:
   config:
     env:
       - name: PLUGIN_ENABLE_FILE_RETRIEVE
-        value: "true"'
+        value: "false"'
 ```
 
 The names are the flags in [Values worth knowing](#values-worth-knowing),
 upper-cased with hyphens as underscores and a `PLUGIN_` prefix:
-`PLUGIN_MAX_FILE_BYTES`, `PLUGIN_FIO_NAMESPACE`, and so on. Read the security
-note under [File retrieve](#security-model) before enabling it — it is off by
-default deliberately, on both install paths.
+`PLUGIN_MAX_FILE_BYTES`, `PLUGIN_FIO_NAMESPACE`, and so on. Switching file
+retrieve off withholds nothing from anyone — every read already runs as the
+browsing user and is refused unless they hold `pods/exec` in the scan namespace
+— so read [Security model](#security-model) before deciding it is a hardening
+step; what it does is make the path not exist at all.
 
 A Subscription can also mount volumes, which is how a deny list of your own
 reaches the pod: mount a ConfigMap and point `PLUGIN_EXTRA_DENY_LIST_FILE` at
