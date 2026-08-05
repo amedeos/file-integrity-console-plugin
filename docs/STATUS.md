@@ -1852,6 +1852,48 @@ makes, and `sha256sum` through the AIDE pod's `/hostroot` mount for the node's
 side. Both readings are also in the pod's audit log, `outcome: allowed`,
 `detail: 23 bytes`, against user `admin`.
 
+## The deny list denied the file nobody opens — 5 August 2026
+
+Found in the pod's audit log while doing the check above, in a line nobody went
+looking for: a read of `/etc/shadow-`, `outcome: allowed`, 791 bytes. The list
+carried `**/shadow` and `**/gshadow` and nothing else, so the backups RHCOS
+keeps beside them — same hashes, one character of difference in the name — were
+served. Confirmed against the running 0.4.0 build rather than read off the
+source:
+
+```
+/etc/shadow    403
+/etc/shadow-   200
+/etc/gshadow-  200
+```
+
+**What makes it worth fixing is not the exec.** Whoever reaches this code holds
+`create` on `pods/exec` in the operator's namespace and can read the file
+without asking us — that is the documented limit of the list, and it has not
+changed. What changed is the appraisal of "by accident": **AIDE reports
+`/etc/shadow-` as a changed entry** every time a password changes, so it appears
+in the report table with a button beside it. The rule was denying the path a
+reader would have to think of and serving the one the interface leads them to,
+which is the opposite of what a guard rail is for. An administrator glancing at
+a report ends up with password hashes on screen, and with their own name against
+the `pods/exec` in the API server's audit log.
+
+The fix is three globs — `**/shadow*`, `**/gshadow*` and `**/opasswd`, the last
+being `pam_pwhistory`'s file of old hashes, the same class and one nobody thinks
+of either. Two tests go with them: the backups are denied, and `**/shadow*` does
+**not** swallow a directory, because `*` compiles to `[^/]*` here and
+`/usr/share/doc/shadow-utils/README` has to stay readable. That second one is
+the test that would have caught an over-broad fix, which is the failure mode a
+deny list invites.
+
+**Not yet seen on a cluster**, because it needs a build carrying it: the
+published 0.4.0 answers 200 by definition. The lab is being rebuilt at 4.22
+anyway — `0.4.0` for `main`'s generation has never been installed from the real
+`community-operators` catalogue, and the history panels have never run on React
+18 and PatternFly 6.4 — so the confirmation belongs to that round, through
+`hack/lab/bundle.sh` with a locally built image rather than waiting on a
+release.
+
 ## Environment notes
 
 - The Go toolchain is **not preinstalled** and `/tmp` is a 1 GB tmpfs, too small for the module
