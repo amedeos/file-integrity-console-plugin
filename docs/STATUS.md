@@ -1934,6 +1934,58 @@ rebuilt one passes. The asymmetry with the existing check is deliberate: a
 release branch is meant to contain `main`'s commits, and `main` is never meant
 to contain a release branch's.
 
+## 0.4.1, and only on `main` for now — 5 August 2026
+
+The release exists to carry one fix to a cluster: the deny list now covers
+`**/shadow*`, `**/gshadow*` and `**/opasswd`, and the published 0.4.0 answers
+200 on the first two by definition. Nothing else in it is new code — the other
+two commits since 0.4.0 are the `branch-delta` guard and documentation.
+
+**One generation at a time, by decision.** 4.22 is published, verified against
+the lab, and only then do `release-4.16` and `release-4.19` follow. The reason
+is not caution about the fix, which is four globs and two tests: it is that
+three tags pushed around one verification is three chances to meet Quay's queue
+— which drops silently, and has twice — and no way to tell which build the
+answer came from. The two release branches therefore sit red on `branch-delta`
+in the meantime, which is the design working — `main` moved and nothing has
+merged it forward yet.
+
+**What to repeat once the image is installed**, from inside the plugin pod with
+a browsing user's token, exactly as on 5 August:
+
+| path | 0.4.0 | 0.4.1 must say |
+|---|---|---|
+| `/etc/shadow` | 403 | 403 |
+| `/etc/shadow-` | 200, 847 bytes | **403** |
+| `/etc/gshadow-` | 200, 619 bytes | **403** |
+| `/etc/security/opasswd` | 200, empty | **403** |
+| `/etc/fio-demo-changed.conf` | 200, 23 bytes | 200, 23 bytes |
+
+The last row is the one that makes the other four mean something: a deny list
+that has become too broad denies everything and looks exactly like a deny list
+that works.
+
+**`replaces` now names 0.4.0 on all three rows**, where it named 0.3.1 on one.
+That is the field's ordinary maintenance, and the first time all three channels
+are occupied it couples two things on a release branch that had always been
+independent. It was written here first as an *order* — bump the branch, then
+merge `main` forward — and that is wrong, because there is no order that works.
+Both halves fail alone, and they fail for unrelated reasons:
+
+- **merging alone** brings a row naming `0.4.0-ocp4.16` to a branch whose
+  version is still `0.4.0-ocp4.16`, which is a bundle replacing itself; the
+  generator refuses it and so does CI;
+- **bumping alone** leaves the branch behind `main`, and what `main` moved in
+  this release are `README.md`, `docs/STATUS.md` and
+  `hack/bundle/build-bundle.mjs` — none of which either branch declares in
+  `.github/branch-delta.json`. That job fails on paths with nothing to do with
+  the release.
+
+So **one pull request carries both**, closed with a merge commit like any
+merge-forward. Checked rather than argued: `git diff --name-only origin/main
+origin/release-4.16` names those three files today, and the same three on
+`release-4.19`.
+
 ## Environment notes
 
 - The Go toolchain is **not preinstalled** and `/tmp` is a 1 GB tmpfs, too small for the module
