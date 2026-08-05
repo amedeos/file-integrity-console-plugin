@@ -114,7 +114,7 @@ backend:
   # Paths the backend refuses to read, whoever asks. Empty means the built-in
   # defaults compiled into the binary (see backend/internal/policy/policy.go:
   # /etc/kubernetes/static-pod-resources/**, **/*.key, **/*.pem, **/.ssh/**,
-  # **/shadow and friends). Setting this REPLACES those defaults — to keep them
+  # **/shadow* and friends). Setting this REPLACES those defaults — to keep them
   # and add your own, use extraDenyList instead.
   denyList: []
 

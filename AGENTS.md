@@ -463,6 +463,23 @@ It also runs nightly across every release branch, because drift is invisible
 from both sides: nothing touches a release branch when `main` moves, so its own
 CI never runs and the gap simply sits there.
 
+**The same job now guards the other direction, which is the one that had no
+guard at all.** A pull request into `main` must contain no commit a release
+branch already has: branch from `release-4.16` by accident and the pull request
+carries that generation's whole delta — PatternFly 5 components, the `-ocp4.16`
+versions, its lockfile — into `main`, and **every check passes**, because the
+tree is consistent with itself and only its history is wrong. Observed on
+5 August 2026, on a pull request whose file list was the sole evidence.
+
+Two things make it easy to walk into. `git checkout -b` takes whatever HEAD
+happens to be, and the working copy may have been left on a release branch by
+the merge-forward before it; and `git merge --ff-only origin/main` does not
+protect against it, because it answers *already up to date* — `main` is an
+ancestor of every release branch that has been merged forward. The remedy is
+`git checkout -B <branch> origin/main` and a cherry-pick, and the branches
+themselves are asymmetric on purpose: a release branch is meant to contain
+`main`'s commits, `main` is never meant to contain a release branch's.
+
 ## Things that have already cost time
 
 - **Quay builds one image at a time, and drops what it cannot queue.** Pushing
