@@ -1934,6 +1934,47 @@ rebuilt one passes. The asymmetry with the existing check is deliberate: a
 release branch is meant to contain `main`'s commits, and `main` is never meant
 to contain a release branch's.
 
+## 0.4.1, and only on `main` for now — 5 August 2026
+
+The release exists to carry one fix to a cluster: the deny list now covers
+`**/shadow*`, `**/gshadow*` and `**/opasswd`, and the published 0.4.0 answers
+200 on the first two by definition. Nothing else in it is new code — the other
+two commits since 0.4.0 are the `branch-delta` guard and documentation.
+
+**One generation at a time, by decision.** 4.22 is published, verified against
+the lab, and only then do `release-4.16` and `release-4.19` follow. The reason
+is not caution about the fix, which is four globs and two tests: it is that
+three tags pushed around one verification is three chances to meet Quay's queue
+— which drops silently, and has twice — and no way to tell which build the
+answer came from. The two release branches therefore sit red on `branch-delta`
+in the meantime, which is the design working — `main` moved and nothing has
+merged it forward yet.
+
+**What to repeat once the image is installed**, from inside the plugin pod with
+a browsing user's token, exactly as on 5 August:
+
+| path | 0.4.0 | 0.4.1 must say |
+|---|---|---|
+| `/etc/shadow` | 403 | 403 |
+| `/etc/shadow-` | 200, 847 bytes | **403** |
+| `/etc/gshadow-` | 200, 619 bytes | **403** |
+| `/etc/security/opasswd` | 200, empty | **403** |
+| `/etc/fio-demo-changed.conf` | 200, 23 bytes | 200, 23 bytes |
+
+The last row is the one that makes the other four mean something: a deny list
+that has become too broad denies everything and looks exactly like a deny list
+that works.
+
+**`replaces` now names 0.4.0 on all three rows**, where it named 0.3.1 on one.
+That is the field's ordinary maintenance, and it brings an ordering constraint
+with it the first time all three channels are occupied: the table is written on
+`main` and merged forward, but it is compared against the *branch's* version, so
+a row naming `0.4.0-ocp4.16` reaching a `release-4.16` that still says
+`0.4.0-ocp4.16` is a bundle replacing itself — refused by the generator and
+again by CI. **Bump the branch's version first, then merge `main` forward.**
+Written into `build-bundle.mjs` beside the table and into the README, because
+the natural order of work is the wrong one.
+
 ## Environment notes
 
 - The Go toolchain is **not preinstalled** and `/tmp` is a 1 GB tmpfs, too small for the module
