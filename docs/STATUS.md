@@ -1966,14 +1966,25 @@ that has become too broad denies everything and looks exactly like a deny list
 that works.
 
 **`replaces` now names 0.4.0 on all three rows**, where it named 0.3.1 on one.
-That is the field's ordinary maintenance, and it brings an ordering constraint
-with it the first time all three channels are occupied: the table is written on
-`main` and merged forward, but it is compared against the *branch's* version, so
-a row naming `0.4.0-ocp4.16` reaching a `release-4.16` that still says
-`0.4.0-ocp4.16` is a bundle replacing itself — refused by the generator and
-again by CI. **Bump the branch's version first, then merge `main` forward.**
-Written into `build-bundle.mjs` beside the table and into the README, because
-the natural order of work is the wrong one.
+That is the field's ordinary maintenance, and the first time all three channels
+are occupied it couples two things on a release branch that had always been
+independent. It was written here first as an *order* — bump the branch, then
+merge `main` forward — and that is wrong, because there is no order that works.
+Both halves fail alone, and they fail for unrelated reasons:
+
+- **merging alone** brings a row naming `0.4.0-ocp4.16` to a branch whose
+  version is still `0.4.0-ocp4.16`, which is a bundle replacing itself; the
+  generator refuses it and so does CI;
+- **bumping alone** leaves the branch behind `main`, and what `main` moved in
+  this release are `README.md`, `docs/STATUS.md` and
+  `hack/bundle/build-bundle.mjs` — none of which either branch declares in
+  `.github/branch-delta.json`. That job fails on paths with nothing to do with
+  the release.
+
+So **one pull request carries both**, closed with a merge commit like any
+merge-forward. Checked rather than argued: `git diff --name-only origin/main
+origin/release-4.16` names those three files today, and the same three on
+`release-4.19`.
 
 ## Environment notes
 
