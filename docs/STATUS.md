@@ -1765,6 +1765,63 @@ upgrade edge from one console's build to another's and is exactly what the
 channel-per-generation split exists to make impossible. Both were proved to
 fail before being relied on.
 
+## All three generations are on OperatorHub — 4 August 2026
+
+The three 0.4.0 submissions were merged the same afternoon they were opened, in
+the order they were sent: [#10644][s422] (4.22, 17:55 UTC), [#10645][s416]
+(4.16, 18:42) and [#10646][s419] (4.19, 19:25). The first submission had taken
+a week and these took none, because the directory upstream now carries a
+`ci.yaml` declaring `reviewers: [amedeos]`, and the `approved` label then
+arrives on its own. Every console generation this repository builds for has a
+bundle published in `community-operators-prod`.
+
+**Installed from OperatorHub on the lab, on 4.16** — the first install here that
+came from the published catalogue rather than from a one-bundle catalogue built
+locally with `opm`. CSV `Succeeded`, two pods, the `ConsolePlugin` written by
+the init container, and the RBAC invariant in exactly the shape `AGENTS.md`
+describes: the Role rendered from the CSV's `permissions` with `rules: null`,
+the OperatorCondition's Role over its own object, and cluster-wide the two
+rules and nothing else.
+
+**The publication chain is longer than the merge**, and about 40 minutes long:
+merge → the release pipeline → a rebuild of `community-operator-index:v4.16` →
+the `CatalogSource`'s ten-minute poll → a `packagemanifest` the console can
+offer. The `operator-release-pipeline/passed` label on the pull request is the
+signal that the first link is done; while it still reads `started` there is no
+point looking at the cluster. The `v4.16` index carries **only** the 4.16
+bundle — `com.redhat.openshift.versions` keeps the other two out, seen rather
+than deduced, which is the claim the README's compatibility table now makes to
+a reader.
+
+The README said only that the plugin *is published*, in a section a reader
+reaches after the compatibility and security material. It now says so in the
+opening, with the channel per generation beside the branch and the image tag —
+and with the *Disabled* default named there too, because that is the one thing
+an installation can get wrong without being told.
+
+Note for anyone reading "OperatorHub" as the website: `operatorhub.io` is fed by
+`k8s-operatorhub/community-operators` and is a different catalogue for a
+different thing. `community-operators-prod` is the source for OpenShift and
+OKD, which is the only place a console plugin means anything.
+
+Nothing about the release process changes, except that `replaces` in
+`build-bundle.mjs` now has to name 0.4.0 for all three channels rather than for
+`stable-4.22` alone — the case the table was built for.
+
+It also gives the first item under [Still to verify](#still-to-verify) above
+what it was waiting for: an OLM install from a built image, which the container
+lab cannot produce by construction. **File retrieve** is not unverified on this
+generation — it was seen working on a real 4.16 cluster on 31 July, on
+`0.3.1-ocp4.16` — but it has not run on the 0.4.0 build, which carries a change
+to the deny list among the fixes from the tree read. The other two items are
+untouched: an authorization check on a real console with a user who holds no
+monitoring rights, and the 30-day window on a cluster that does not retain 30
+days.
+
+[s422]: https://github.com/redhat-openshift-ecosystem/community-operators-prod/pull/10644
+[s416]: https://github.com/redhat-openshift-ecosystem/community-operators-prod/pull/10645
+[s419]: https://github.com/redhat-openshift-ecosystem/community-operators-prod/pull/10646
+
 ## Environment notes
 
 - The Go toolchain is **not preinstalled** and `/tmp` is a 1 GB tmpfs, too small for the module

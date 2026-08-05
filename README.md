@@ -10,6 +10,14 @@ result ConfigMaps instead of read as raw log text.
 Adds a **Compute → File Integrity** entry to the administrator perspective,
 visible only on clusters where the `FileIntegrity` CRD exists.
 
+**Installable from OperatorHub**, on the cluster, from **4.16** upwards: it is
+published in [`community-operators-prod`][cop] as the community operator *File
+Integrity Console Plugin*, one bundle per console generation, and a cluster is
+offered only the one built for it. Read [Install from
+OperatorHub](#install-from-operatorhub) first — the install form defaults the
+plugin to *Disabled*, and installing without changing that leaves the operator
+running and no menu entry anywhere.
+
 [fio]: https://github.com/openshift/file-integrity-operator
 
 ## Compatibility
@@ -38,16 +46,21 @@ Support for earlier consoles therefore has to be a build of its own, against
 that generation's SDK, on its own branch — see
 [AGENTS.md](AGENTS.md#supporting-more-than-one-console-generation).
 
-| Console | Branch | Image tag |
-|---|---|---|
-| 4.22 and later | `main` | `latest`, `X.Y.Z` |
-| 4.19 – 4.21 | `release-4.19` | `release-4.19`, `X.Y.Z-ocp4.19` |
-| 4.16 – 4.18 | `release-4.16` | `release-4.16`, `X.Y.Z-ocp4.16` |
+| Console | Branch | Image tag | OperatorHub channel |
+|---|---|---|---|
+| 4.22 and later | `main` | `latest`, `X.Y.Z` | `stable-4.22` |
+| 4.19 – 4.21 | `release-4.19` | `release-4.19`, `X.Y.Z-ocp4.19` | `stable-4.19` |
+| 4.16 – 4.18 | `release-4.16` | `release-4.16`, `X.Y.Z-ocp4.16` | `stable-4.16` |
 
 A console outside every range loads none of them rather than loading the wrong
 one: each build declares a closed `@console/pluginAPI` range, so the mismatch is
 a clean refusal in the console's own plugin list instead of a page that renders
 half-way.
+
+The channel is not something an installation has to get right by hand. Each
+per-OpenShift community catalogue is built from the bundles whose declared range
+covers it, so a 4.19 cluster is offered the 4.19 bundle and no other, and the
+channel above is the only one its install form lists.
 
 ### File retrieve on 4.16 is not verified yet
 
@@ -254,7 +267,10 @@ stages stay native and only the runtime layer varies — no emulation.
 ### Install from OperatorHub
 
 Published as a community operator, so it appears in **Operators → OperatorHub**
-under the name *File Integrity Console Plugin*.
+under the name *File Integrity Console Plugin*, in the `community-operators`
+catalogue every cluster already reads. Nothing has to be added first: no
+`CatalogSource`, no registry to mirror, no image reference to supply — the
+bundle names the published image itself.
 
 **On the install form, set "Console plugin" to Enable.** It defaults to
 *Disable*, with a warning about trusting the plugin, and installing without
