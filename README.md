@@ -594,11 +594,13 @@ why it is the one row entry that has to be maintained by hand. A channel still
 empty declares nothing: naming a predecessor that was never published leaves a
 dangling edge. The build prints what it used, or `— (first in channel)`.
 
-All three channels hold a bundle now, which turns that into an order of work on
-a release branch: **bump the branch's version before merging `main` forward.**
-The table arrives by merge and is compared against the branch's own version, so
-a row naming the version the branch still carries is a bundle that replaces
-itself, and both the generator and CI refuse it.
+All three channels hold a bundle now, which couples two things on a release
+branch: **the merge-forward and the version bump have to be one pull request**,
+closed with a merge commit. The table arrives by merge and is compared against
+the branch's own version, so merging alone gives a bundle that replaces itself;
+bumping alone leaves the branch behind `main` in files no branch declares in
+`.github/branch-delta.json`, and that job fails instead. Neither half is green
+on its own.
 
 **Tag first.** A bundle names an immutable image, so `X.Y.Z` has to exist and
 Quay has to have built it before the bundle is generated for submission.

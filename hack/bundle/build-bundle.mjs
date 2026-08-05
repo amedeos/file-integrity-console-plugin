@@ -90,14 +90,22 @@ const NAMESPACE = 'file-integrity-console-plugin';
 // the `— (first in channel)` the build can print is now a state this package
 // has left behind rather than one it is in.
 //
-// That makes an ordering constraint out of what used to be free, and it is the
-// thing to know before the next release branch is cut. The table lives here and
-// is merged forward, but the *version* it is compared against is the branch's
-// own — so a row naming 0.4.0-ocp4.16 arriving on a `release-4.16` that still
-// says 0.4.0-ocp4.16 is a bundle that replaces itself, which the check below
-// refuses and CI refuses again. **Bump the branch's version first, then merge
-// `main` forward.** The reverse order leaves the branch red between two pull
-// requests for no reason other than the order they were made in.
+// That couples two things on a release branch that used to be independent, and
+// the coupling has no order that works — **they have to land in the same pull
+// request**, closed with a merge commit. Neither half is green alone:
+//
+//   - the merge-forward alone brings a row naming 0.4.0-ocp4.16 to a branch
+//     whose version is still 0.4.0-ocp4.16, which is a bundle that replaces
+//     itself: the check below refuses it and CI refuses it again;
+//   - the bump alone leaves the branch behind `main`, and what `main` moved are
+//     files no branch declares in .github/branch-delta.json — this one among
+//     them — so `branch-delta` fails on paths that have nothing to do with the
+//     release.
+//
+// Checked rather than reasoned about, on 5 August 2026: with `main` at 0.4.1
+// the two branches differ from it in README.md, docs/STATUS.md and this file,
+// none of which either branch declares. An earlier version of this comment said
+// to bump first and merge afterwards, which is the half that fails second.
 const GENERATIONS = [
   {
     suffix: '-ocp4.16',
