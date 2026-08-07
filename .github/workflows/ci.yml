@@ -37,18 +37,29 @@ jobs:
       # src/components/FileContentModal.tsx and hid three PatternFly class
       # names from exactly such a search.
       #
-      # Every tracked file is scanned, because this repository has no binary
-      # assets. If one is ever added, exclude it here deliberately rather than
-      # loosening the check — a binary blob arriving in this tree is itself
-      # worth a second look.
+      # Every tracked file is scanned but one directory: docs/images holds the
+      # README's screenshots, and a PNG is NUL bytes by nature. That is the
+      # deliberate exclusion this check always said it would need if a binary
+      # asset ever arrived — named by directory and extension rather than by
+      # loosening the comparison, so a binary anywhere else still fails, and
+      # so does anything in that directory which is not a screenshot.
       #
       # Detection is `tr` plus `cmp`, not grep: grep skips a file it considers
       # binary even when asked to search it, which is the very behaviour being
       # guarded against here. Deleting NULs and comparing is immune to that.
       - name: No NUL bytes in tracked files
         run: |
+          # Checked first, because the exclusion below is what would let a
+          # file smuggled in here go unread.
+          strays=$(git ls-files 'docs/images/*' | grep -v '\.png$' || true)
+          if [ -n "$strays" ]; then
+            echo "docs/images is for the README's screenshots and holds PNGs only:"
+            echo "$strays" | sed 's/^/  /'
+            exit 1
+          fi
+          scanned=$(git ls-files ':(exclude)docs/images/*.png')
           offenders=$(
-            for f in $(git ls-files); do
+            for f in $scanned; do
               LC_ALL=C tr -d '\0' < "$f" | cmp -s - "$f" || echo "$f"
             done
           )
@@ -59,7 +70,8 @@ jobs:
             echo "Write control characters as escapes, not as themselves."
             exit 1
           fi
-          echo "$(git ls-files | wc -l) tracked files, none containing a NUL byte"
+          echo "$(echo "$scanned" | wc -l) tracked files, none containing a NUL byte"
+          echo "$(git ls-files 'docs/images/*.png' | wc -l) screenshots not scanned"
 
       # The lab scripts delete objects on a live cluster, in a namespace shared
       # with the File Integrity Operator. An unquoted variable there is not a

@@ -10,6 +10,9 @@ result ConfigMaps instead of read as raw log text.
 Adds a **Compute → File Integrity** entry to the administrator perspective,
 visible only on clusters where the `FileIntegrity` CRD exists.
 
+![The File Integrity overview: three nodes, one of them reporting a change,
+above the history panels](docs/images/overview.png)
+
 **Installable from OperatorHub** on any OpenShift from **4.16** upwards: it is
 published in [`community-operators-prod`][cop] as the community operator *File
 Integrity Console Plugin*, one bundle per console generation, and a cluster is
@@ -114,6 +117,32 @@ review catches it.
   collected](#history-needs-the-operators-metrics-to-be-collected).
 
 The UI ships English and Italian locales.
+
+![One node's report, with the changed file expanded to show the baseline
+beside what is on disk now](docs/images/node-report.png)
+
+A node's report, expanded on the file that changed: permissions, SHA-512 and
+ACL, what the baseline recorded on the left and what is on disk on the right.
+The raw AIDE report is a click below, unparsed, for when the parse is what you
+want to check.
+
+![The contents of the reported file, read from the node, with its size and
+SHA-256](docs/images/file-retrieve.png)
+
+The same file read back from the node. The SHA-256 is of the bytes that
+arrived, so it can be compared with the node's own — these are the 85 bytes and
+the digest `sha256sum` reports on `control-plane-0`.
+
+![The re-initialisation dialog, stating that everything currently reported
+stops being reported](docs/images/re-init.png)
+
+Re-initialising says what it costs before it does it. Rebuilding the baseline
+is how a reported change is cleared, and a change that turns out to be an
+intrusion is cleared the same way.
+
+The screenshots are of a **4.22** console. The pages are the same on every
+generation this plugin is published for; PatternFly 5, on 4.16 to 4.18, draws
+them with its own spacing and its own controls.
 
 ### History needs the operator's metrics to be collected
 
